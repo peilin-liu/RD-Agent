@@ -11,14 +11,20 @@ declare module 'vue' {
     Code: typeof import('./src/components/code.vue')['default']
     Development: typeof import('./src/components/development.vue')['default']
     Dialog: typeof import('./src/components/dialog.vue')['default']
+    ElButton: typeof import('element-plus/es')['ElButton']
+    ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
+    ElOption: typeof import('element-plus/es')['ElOption']
     ElRadio: typeof import('element-plus/es')['ElRadio']
     ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
+    ElSelect: typeof import('element-plus/es')['ElSelect']
+    ElSelectV2: typeof import('element-plus/es')['ElSelectV2']
     ElSwitch: typeof import('element-plus/es')['ElSwitch']
     ElTable: typeof import('element-plus/es')['ElTable']
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
+    ElTag: typeof import('element-plus/es')['ElTag']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     Feedback: typeof import('./src/components/feedback.vue')['default']
@@ -41,6 +47,10 @@ declare module 'vue' {
     StepComponent: typeof import('./src/components/step-component.vue')['default']
     SvgIcon: typeof import('./src/components/svgIcon.vue')['default']
     Swiper: typeof import('./src/components/swiper.vue')['default']
+    SymbolsViewer: typeof import('./src/components/SymbolsViewer.vue')['default']
     UploadProgress: typeof import('./src/components/upload-progress.vue')['default']
+  }
+  export interface ComponentCustomProperties {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }

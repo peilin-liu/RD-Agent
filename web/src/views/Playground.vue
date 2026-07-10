@@ -12,6 +12,12 @@
         {{ currentScenarioLabel }}
       </span>
       <span
+        v-else-if="!showPlayground && showPanel >= 4"
+        class="nav-highlight-name"
+      >
+        Data Explorer
+      </span>
+      <span
         v-else
         @click="changePanel"
         :class="{
@@ -28,11 +34,26 @@
         :class="{ active: showPlayground, 'with-trace': showPlayground && currentTraceName }"
         >Summary</span
       >
+      <div class="region-bar">
+        <span class="region-label">Region:</span>
+        <el-select v-model="currentRegion" @change="onRegionChange" size="small" style="width: 90px">
+          <el-option v-for="r in regionList" :key="r" :label="r.toUpperCase()" :value="r" />
+        </el-select>
+      </div>
     </div>
     <div class="setup-content" v-show="!showPlayground">
       <div class="main-content" v-show="showPanel == 1">
-        <h1>Let’s Get Started: Select Your Action</h1>
+        <h1>Let's Get Started: Select Your Action</h1>
         <div class="card-box">
+          <div class="card-item gradient-big-border" @click="openDataExplorer">
+            <h2>Data Explorer</h2>
+            <p>Browse Qlib OHLCV data by symbol</p>
+            <img
+              class="img2"
+              src="@/assets/images/continue-img.png"
+              alt="Data Explorer"
+            />
+          </div>
           <div class="card-item gradient-big-border" @click="changePanel">
             <h2>First time?</h2>
             <p>Select a scenario for your analysis</p>
@@ -357,6 +378,9 @@
           </div>
         </div>
       </div>
+      <div class="main-content" v-show="showPanel == 4">
+        <SymbolsViewer :region="currentRegion" />
+      </div>
     </div>
     <div class="playground-shell" v-if="showPlayground">
       <playgroundPage
@@ -372,14 +396,16 @@
 <script setup>
 import { computed, ref, watch, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
-import { getHistoryTraceIds, uploadFile } from "../utils/api";
+import { getHistoryTraceIds, uploadFile, getRegions, setRegion } from "../utils/api";
 import selectComponent from "../components/select-component.vue";
 import smSelectComponent from "../components/sm-select-component.vue";
+import SymbolsViewer from "../components/SymbolsViewer.vue";
 import loadingSvg from "../components/loading-dot.vue";
 import markdown from "../components/markdown.vue";
-import playgroundPage from "./PlaygroundPage.vue";
+import { defineAsyncComponent } from "vue";
 import { useRouter } from "vue-router";
 import { kaggleCompetitions } from "../constants/mle-competitions";
+const playgroundPage = defineAsyncComponent(() => import("./PlaygroundPage.vue"));
 const router = useRouter();
 const completedTraceStorageKey = "completedTraceIdList";
 const showPanel = ref(1);
@@ -638,6 +664,33 @@ const developer = ref(visibleContinuousScenarioList[0].developer);
 const id = ref("");
 const line = ref(null);
 const tabIndex = ref(0);
+
+// Region selector
+const regionList = ref([]);
+const currentRegion = ref("cn");
+
+onMounted(async () => {
+  try {
+    const res = await getRegions();
+    regionList.value = res.regions || [];
+    const saved = sessionStorage.getItem("selectedRegion");
+    currentRegion.value =
+      (res.regions && res.regions.includes(saved || "") ? saved : res.default_region) ||
+      (res.regions && res.regions.length ? res.regions[0] : "cn");
+    sessionStorage.setItem("selectedRegion", currentRegion.value);
+  } catch {
+    currentRegion.value = sessionStorage.getItem("selectedRegion") || "cn";
+  }
+});
+
+function onRegionChange(val) {
+  sessionStorage.setItem("selectedRegion", val);
+  setRegion(val).catch(() => {});
+}
+
+function openDataExplorer() {
+  showPanel.value = 4;
+}
 
 const historyScenarioList = ref([]);
 const historyScenarioCheckedIndex = ref(-1);
@@ -1063,13 +1116,23 @@ onMounted(() => {
       }
     }
 
-    .nav-separator {
-      cursor: default;
+	    .nav-separator {
+	      cursor: default;
 
-      &:hover {
-        color: #868ca5;
-      }
-    }
+	      &:hover {
+	        color: #868ca5;
+	      }
+	    }
+	    .region-bar {
+	      display: flex;
+	      align-items: center;
+	      gap: 6px;
+	      margin-left: 8px;
+	      .region-label {
+	        font-size: 0.875em;
+	        color: #868ca5;
+	      }
+	    }
   }
 }
 

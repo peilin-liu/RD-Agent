@@ -1,6 +1,7 @@
 import logging
 import os
 import random
+import threading
 import traceback
 from collections import defaultdict
 from contextlib import redirect_stderr, redirect_stdout
@@ -9,6 +10,7 @@ from multiprocessing import Process, Queue
 from pathlib import Path
 from queue import Empty
 
+import pandas as pd
 import randomname
 import typer
 from flask import Flask, jsonify, request, send_file, send_from_directory
@@ -580,6 +582,161 @@ def test():
     return jsonify({"msgs": msgs, "pointers": pointers}), 200
 
 
+# ---------- Qlib Data Provider (init once per region, reused) ----------
+
+_qlib_registry: dict[str, "QlibDataProvider"] = {}
+_qlib_failed_regions: set[str] = set()
+_qlib_lock = threading.Lock()
+
+
+class QlibDataProvider:
+    def __init__(self, region: str):
+        from rdagent.core.region_config import get_region_config
+
+        ri = get_region_config(region)
+        self.region = region
+        self.provider_uri = ri.qlib_data_path
+        self.fields = ri.fields if ri.fields else ["$open", "$close", "$high", "$low", "$volume"]
+        self._symbols: list[dict] = []
+        self._verify_data_dir()
+        self._init_qlib()
+        self._load_symbols()
+
+    def _verify_data_dir(self) -> None:
+        p = Path(self.provider_uri)
+        if not p.exists():
+            raise ValueError(f"Data directory not found: {self.provider_uri}")
+        if not (p / "calendars" / "day.txt").exists():
+            raise ValueError(f"Calendar not found: {p / 'calendars' / 'day.txt'}")
+
+    def _init_qlib(self) -> None:
+        import qlib
+        from qlib.data import D
+
+        qlib.init(
+            provider_uri={"day": self.provider_uri},
+            expression_cache=None,
+        )
+        self.D = D
+
+    def _load_symbols(self) -> None:
+        symbols_dir = Path("/data/qlib_data/symbols")
+        csv_path = None
+        for pat in [f"{self.region}_symbols.csv", f"{self.region}_benchmarks.csv"]:
+            candidate = symbols_dir / pat
+            if candidate.exists():
+                csv_path = candidate
+                break
+        if csv_path is None:
+            for f in symbols_dir.glob(f"{self.region}_*.csv"):
+                csv_path = f
+                break
+        if csv_path is not None:
+            self._symbols = pd.read_csv(csv_path).to_dict(orient="records")
+        else:
+            self._symbols = []
+
+    def _parse_date(self, s: str) -> str:
+        return pd.Timestamp(s).strftime("%Y-%m-%d")
+
+    def query(
+        self,
+        instruments: list[str],
+        fields: list[str],
+        start: str,
+        end: str,
+        freq: str = "day",
+    ) -> pd.DataFrame:
+        df: pd.DataFrame = self.D.features(
+            instruments,
+            fields,
+            start_time=start,
+            end_time=end,
+            freq=freq,
+        )
+        if df.empty:
+            return df
+        df = df.swaplevel().sort_index()
+        df.index.names = ["date", "instrument"]
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.map("_".join)
+        return df
+
+
+def _get_provider(region: str) -> QlibDataProvider | None:
+    if region in _qlib_failed_regions:
+        return None
+    with _qlib_lock:
+        if region not in _qlib_registry:
+            try:
+                _qlib_registry[region] = QlibDataProvider(region)
+            except Exception:
+                _qlib_failed_regions.add(region)
+                raise
+        return _qlib_registry[region]
+
+
+@app.route("/api/symbols/<region>", methods=["GET"])
+def get_symbols(region: str):
+    """Return cached symbols list for a region (loaded at startup)."""
+    provider = _get_provider(region)
+    if provider is None:
+        return jsonify({"error": f"Region '{region}' is not available. Check data path or calendar."}), 503
+    return jsonify(provider._symbols)
+
+
+@app.route("/api/ohlcv/<region>", methods=["POST"])
+def get_ohlcv(region: str):
+    """
+    Query OHLCV data for a list of instruments over a time range.
+    Body: { "instruments": ["000001.SZ"], "start": "2024-01-01", "end": "2024-12-31", "fields": ["$open","$close"] }
+    If fields is empty, all available fields are discovered automatically.
+    """
+    data = request.get_json(silent=True) or {}
+    instruments = data.get("instruments", [])
+    start = data.get("start", "2024-01-01")
+    end = data.get("end", "2024-12-31")
+    fields = data.get("fields", [])
+
+    if not instruments:
+        return jsonify({"error": "Missing instruments"}), 400
+
+    try:
+        provider = _get_provider(region)
+        if provider is None:
+            return jsonify({"error": f"Region '{region}' is not available. Check data path or calendar."}), 503
+        if not fields:
+            fields = provider.fields
+
+        df = provider.query(instruments, fields, start, end)
+        if df.empty:
+            return jsonify({"data": []})
+        df = df.reset_index()
+        # Ensure date column is plain string for JSON serialization
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        # Manually convert NaN to None so jsonify produces valid JSON (null)
+        def _clean(v):
+            try:
+                if pd.isna(v):
+                    return None
+            except (TypeError, ValueError):
+                pass
+            return v
+        result = {
+            "columns": df.columns.tolist(),
+            "data": [[_clean(v) for v in row] for row in df.values.tolist()],
+        }
+        return jsonify(result)
+    except Exception as e:
+        import traceback as tb
+
+        return jsonify({"error": str(e), "trace": tb.format_exc()}), 500
+
+
+# ---------- End Qlib Data Provider ----------
+
+
 @app.route("/api/regions", methods=["GET"])
 def get_regions():
     """Return available regions and the current default region."""
@@ -619,6 +776,15 @@ def server_static_files(fn):
 def main(port: int = 19899):
     app.config["UI_SERVER_PORT"] = port
     _load_existing_traces(log_folder_path)
+    # Preload all regions at startup
+    from rdagent.core.region_config import get_available_regions
+
+    for r in get_available_regions():
+        try:
+            _get_provider(r)
+            app.logger.info(f"Region {r} loaded (qlib init + symbols cached)")
+        except Exception as e:
+            app.logger.warning(f"Region {r} load failed: {e}")
     app.run(debug=False, host="0.0.0.0", port=port)
 
 

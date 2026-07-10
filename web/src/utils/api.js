@@ -80,3 +80,21 @@ export function setRegion(region) {
         data: { region },
     })
 }
+
+export function getSymbols(region) {
+    return request({
+        url: url + `api/symbols/${region}`,
+        method: 'get',
+    })
+}
+
+export function getOHLCV(region, instruments, fields, start, end) {
+    return request({
+        url: url + `api/ohlcv/${region}`,
+        method: 'post',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        data: { instruments, fields, start, end },
+    })
+}

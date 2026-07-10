@@ -3,22 +3,22 @@ import { createRouter, RouteRecordRaw, createWebHashHistory } from 'vue-router'
 const routes: Array<RouteRecordRaw> = [
   {
     path: '/',
-    name: 'Home',
-    component: () => import('../views/Home.vue'),
-    meta: {
-      keepAlive: true, //此页面需要缓存
-      requiresFrontEndAuth: true,
-      footerBg: "#F6FAFF"
-    },
-  },
-  {
-    path: '/Playground',
     name: 'Playground',
     component: () => import('../views/Playground.vue'),
     meta: {
-      keepAlive: false, //此页面需要缓存
+      keepAlive: false,
       requiresFrontEndAuth: true,
       footerBg: "#fff"
+    },
+  },
+  {
+    path: '/Home',
+    name: 'Home',
+    component: () => import('../views/Home.vue'),
+    meta: {
+      keepAlive: true,
+      requiresFrontEndAuth: true,
+      footerBg: "#F6FAFF"
     },
   },
   {
@@ -26,20 +26,11 @@ const routes: Array<RouteRecordRaw> = [
     name: 'PlaygroundPage',
     component: () => import('../views/PlaygroundPage.vue'),
     meta: {
-      keepAlive: false, //此页面需要缓存
+      keepAlive: false,
       requiresFrontEndAuth: true,
       footerBg: "#fff"
     },
   }
-  // {
-  //   path: '/Login',
-  //   name: 'Login',
-  //   component: () => import('../views/Login.vue'),
-  //   meta: {
-  //     keepAlive: false, //此页面需要缓存
-  //     requiresFrontEndAuth: false
-  //   },
-  // }
 ]
 
 const router = createRouter({

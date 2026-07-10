@@ -37,6 +37,7 @@ class RegionInfo:
     qlib_data_path: str
     market: str
     benchmark: str
+    fields: list[str] = field(default_factory=lambda: ["$open", "$close", "$high", "$low", "$volume"])
 
 
 def _load_config() -> dict:
@@ -76,6 +77,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
             benchmark=ri["benchmark"],
+            fields=ri.get("fields", []),
         )
 
     if region in _DEFAULT_REGIONS:
@@ -84,6 +86,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
             benchmark=ri["benchmark"],
+            fields=[],
         )
 
     raise KeyError(f"Unknown region: {region}. Available: {get_available_regions()}")
