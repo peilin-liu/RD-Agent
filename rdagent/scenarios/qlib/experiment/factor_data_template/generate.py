@@ -1,8 +1,11 @@
+import os
+import sys
+
 import qlib
-
-qlib.init(provider_uri="~/.qlib/qlib_data/cn_data")
-
 from qlib.data import D
+
+_provider_uri = os.environ.get("QLIB_PROVIDER_URI", "~/.qlib/qlib_data/cn_data")
+qlib.init(provider_uri=_provider_uri)
 
 instruments = D.instruments()
 fields = ["$open", "$close", "$high", "$low", "$volume", "$factor"]

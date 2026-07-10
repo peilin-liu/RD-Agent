@@ -4,6 +4,7 @@ from rdagent.app.qlib_rd_loop.conf import ModelBasePropSetting
 from rdagent.components.runner import CachedRunner
 from rdagent.core.conf import RD_AGENT_SETTINGS
 from rdagent.core.exception import ModelEmptyError
+from rdagent.core.region_config import get_region_config
 from rdagent.core.utils import cache_with_pickle
 from rdagent.log import rdagent_logger as logger
 from rdagent.scenarios.qlib.developer.utils import process_factor_data
@@ -60,6 +61,10 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
         exp.experiment_workspace.inject_files(**{"model.py": exp.sub_workspace_list[0].file_dict["model.py"]})
 
         mbps = ModelBasePropSetting()
+        import os
+
+        region = os.environ.get("QLIB_REGION", "cn")
+        ri = get_region_config(region)
         env_to_use = {
             "PYTHONPATH": "./",
             "train_start": mbps.train_start,
@@ -69,6 +74,10 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
             "test_start": mbps.test_start,
             "feature_names": str(list(exp.base_features.keys())),
             "feature_expressions": str(list(exp.base_features.values())),
+            "qlib_provider_uri": ri.qlib_data_path,
+            "qlib_region": region,
+            "qlib_market": ri.market,
+            "qlib_benchmark": ri.benchmark,
         }
         if mbps.test_end is not None:
             env_to_use.update({"test_end": mbps.test_end})

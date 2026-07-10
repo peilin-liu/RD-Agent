@@ -391,6 +391,7 @@ def upload_file():
     competition = request.form.get("competition")
     loop_n = request.form.get("loops")
     all_duration = request.form.get("all_duration")
+    region = request.form.get("region")
 
     # scenario = "Data Science Loop"
     if scenario == "Data Science":
@@ -430,6 +431,7 @@ def upload_file():
             "loop_n": loop_n_val,
             "all_duration": all_duration_val,
             "base_features_path": str(trace_files_path),
+            "region": region,
         }
     if scenario == "Finance Model Implementation":
         target_name = "fin_model"
@@ -437,6 +439,7 @@ def upload_file():
             "loop_n": loop_n_val,
             "all_duration": all_duration_val,
             "base_features_path": str(trace_files_path),
+            "region": region,
         }
     if scenario == "Finance Whole Pipeline":
         target_name = "fin_quant"
@@ -444,6 +447,7 @@ def upload_file():
             "loop_n": loop_n_val,
             "all_duration": all_duration_val,
             "base_features_path": str(trace_files_path),
+            "region": region,
         }
     if scenario == "Finance Data Building (Reports)":
         target_name = "fin_factor_report"
@@ -574,6 +578,30 @@ def test():
     msgs = {k: [i["tag"] for i in task.messages] for k, task in rdagent_processes.items()}
     pointers = {k: dict(task.pointers) for k, task in rdagent_processes.items()}
     return jsonify({"msgs": msgs, "pointers": pointers}), 200
+
+
+@app.route("/api/regions", methods=["GET"])
+def get_regions():
+    """Return available regions and the current default region."""
+    from rdagent.core.region_config import get_available_regions, get_default_region
+
+    return jsonify({
+        "regions": get_available_regions(),
+        "default_region": get_default_region(),
+    }), 200
+
+
+@app.route("/api/region", methods=["POST"])
+def set_region():
+    """Set the default region (persists to ~/rd-agent/config.json)."""
+    data = request.get_json(silent=True) or {}
+    region = data.get("region")
+    if not region:
+        return jsonify({"error": "Missing 'region'"}), 400
+    from rdagent.core.region_config import set_default_region
+
+    set_default_region(region)
+    return jsonify({"status": "success", "region": region}), 200
 
 
 @app.route("/", methods=["GET"])

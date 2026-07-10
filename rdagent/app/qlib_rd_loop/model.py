@@ -3,12 +3,14 @@ Model workflow with session control
 """
 
 import asyncio
+import os
 
 import fire
 
 from rdagent.app.qlib_rd_loop.conf import MODEL_PROP_SETTING
 from rdagent.components.workflow.rd_loop import RDLoop
 from rdagent.core.exception import ModelEmptyError
+from rdagent.core.region_config import get_default_region
 
 
 class ModelRDLoop(RDLoop):
@@ -22,18 +24,14 @@ def main(
     all_duration: str | None = None,
     checkout: bool = True,
     base_features_path: str | None = None,
+    region: str | None = None,
     **kwargs,
 ):
     """
     Auto R&D Evolving loop for fintech models
-
-    You can continue running session by
-
-    .. code-block:: python
-
-        dotenv run -- python rdagent/app/qlib_rd_loop/model.py $LOG_PATH/__session__/1/0_propose  --step_n 1   # `step_n` is a optional paramter
-
     """
+    os.environ["QLIB_REGION"] = region or get_default_region()
+
     if path is None:
         model_loop = ModelRDLoop(MODEL_PROP_SETTING)
     else:

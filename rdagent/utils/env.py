@@ -1017,12 +1017,25 @@ class QlibDockerConf(DockerConf):
     image: str = "local_qlib:latest"
     mount_path: str = "/workspace/qlib_workspace/"
     default_entry: str = "qrun conf.yaml"
-    extra_volumes: dict = {
-        str(Path("~/.qlib/").expanduser().resolve().absolute()): {
-            "bind": "/root/.qlib/",
-            "mode": "rw",
+    extra_volumes: dict = {}
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        from rdagent.core.region_config import get_region_config
+
+        ri = get_region_config()
+        qlib_path = Path(ri.qlib_data_path)
+        # Mount a common ancestor so that multiple region data dirs are all visible.
+        # If data is at /data/qlib_data/qlib_bin/market_daily/cn/, mount /data/qlib_data/.
+        # Fall back to ~/.qlib/ for backward compatibility.
+        mount_host = str(qlib_path.expanduser().resolve())
+        self.extra_volumes = {
+            mount_host: {
+                "bind": "/root/.qlib_data/",
+                "mode": "rw",
+            }
         }
-    }
+
     shm_size: str | None = "16g"
     enable_gpu: bool = True
     enable_cache: bool = False
@@ -1516,16 +1529,20 @@ class QTDockerEnv(DockerEnv):
 
     def prepare(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
-        Download image & data if it doesn't exist
+        Prepare image & data if it doesn't exist.
+        Data existence check uses region_config for the default region.
         """
         super().prepare()
-        qlib_data_path = next(iter(self.conf.extra_volumes.keys()))
-        if not (Path(qlib_data_path) / "qlib_data" / "cn_data").exists():
-            logger.info("We are downloading!")
-            cmd = "python -m qlib.run.get_data qlib_data --target_dir ~/.qlib/qlib_data/cn_data --region cn --interval 1d --delete_old False"
-            self.check_output(entry=cmd)
+        from rdagent.core.region_config import get_region_config
+
+        ri = get_region_config()
+        if not Path(ri.qlib_data_path).expanduser().resolve().exists():
+            logger.warning(
+                f"Qlib data path {ri.qlib_data_path} does not exist. "
+                "Please ensure your Qlib data is available at this path."
+            )
         else:
-            logger.info("Data already exists. Download skipped.")
+            logger.info(f"Qlib data found at {ri.qlib_data_path}.")
 
 
 class KGDockerEnv(DockerEnv):

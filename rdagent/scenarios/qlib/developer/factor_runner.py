@@ -4,6 +4,7 @@ import pandas as pd
 from pandarallel import pandarallel
 
 from rdagent.core.conf import RD_AGENT_SETTINGS
+from rdagent.core.region_config import get_region_config
 from rdagent.core.utils import cache_with_pickle
 
 pandarallel.initialize(verbose=1)
@@ -71,6 +72,10 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             exp.based_experiments[-1] = self.develop(exp.based_experiments[-1])
 
         fbps = FactorBasePropSetting()
+        import os
+
+        region = os.environ.get("QLIB_REGION", "cn")
+        ri = get_region_config(region)
         env_to_use = {
             "PYTHONPATH": "./",
             "train_start": fbps.train_start,
@@ -80,6 +85,10 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             "test_start": fbps.test_start,
             "feature_names": str(list(exp.base_features.keys())),
             "feature_expressions": str(list(exp.base_features.values())),
+            "qlib_provider_uri": ri.qlib_data_path,
+            "qlib_region": region,
+            "qlib_market": ri.market,
+            "qlib_benchmark": ri.benchmark,
         }
         if fbps.test_end is not None:
             env_to_use.update({"test_end": fbps.test_end})

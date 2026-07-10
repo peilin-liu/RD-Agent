@@ -3,6 +3,7 @@ Quant (Factor & Model) workflow with session control
 """
 
 import asyncio
+import os
 from typing import Any
 
 import fire
@@ -13,6 +14,7 @@ from rdagent.components.workflow.rd_loop import RDLoop
 from rdagent.core.conf import RD_AGENT_SETTINGS
 from rdagent.core.developer import Developer
 from rdagent.core.exception import FactorEmptyError, ModelEmptyError
+from rdagent.core.region_config import get_default_region
 from rdagent.core.proposal import (
     Experiment2Feedback,
     ExperimentPlan,
@@ -135,14 +137,14 @@ def main(
     all_duration: str | None = None,
     checkout: bool = True,
     base_features_path: str | None = None,
+    region: str | None = None,
     **kwargs,
 ):
     """
     Auto R&D Evolving loop for fintech factors.
-    You can continue running session by
-    .. code-block:: python
-        dotenv run -- python rdagent/app/qlib_rd_loop/quant.py $LOG_PATH/__session__/1/0_propose  --step_n 1   # `step_n` is a optional paramter
     """
+    os.environ["QLIB_REGION"] = region or get_default_region()
+
     if path is None:
         quant_loop = QuantRDLoop(QUANT_PROP_SETTING)
     else:

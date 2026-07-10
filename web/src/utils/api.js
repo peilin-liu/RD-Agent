@@ -62,3 +62,21 @@ export function getStdoutDownloadUrl(traceId) {
     const query = new URLSearchParams({ id: traceId });
     return url + "stdout?" + query.toString();
 }
+
+export function getRegions() {
+    return request({
+        url: url + "api/regions",
+        method: 'get',
+    })
+}
+
+export function setRegion(region) {
+    return request({
+        url: url + "api/region",
+        method: 'post',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        data: { region },
+    })
+}

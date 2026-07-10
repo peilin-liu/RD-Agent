@@ -3,6 +3,7 @@ Factor workflow with session control
 """
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,6 +12,7 @@ import fire
 from rdagent.app.qlib_rd_loop.conf import FACTOR_PROP_SETTING
 from rdagent.components.workflow.rd_loop import RDLoop
 from rdagent.core.exception import CoderError, FactorEmptyError
+from rdagent.core.region_config import get_default_region
 from rdagent.log import rdagent_logger as logger
 
 
@@ -35,18 +37,14 @@ def main(
     checkout: bool = True,
     checkout_path: Optional[str] = None,
     base_features_path: Optional[str] = None,
+    region: Optional[str] = None,
     **kwargs,
 ):
     """
     Auto R&D Evolving loop for fintech factors.
-
-    You can continue running session by
-
-    .. code-block:: python
-
-        dotenv run -- python rdagent/app/qlib_rd_loop/factor.py $LOG_PATH/__session__/1/0_propose  --step_n 1   # `step_n` is a optional paramter
-
     """
+    os.environ["QLIB_REGION"] = region or get_default_region()
+
     if not checkout_path is None:
         checkout = Path(checkout_path)
 

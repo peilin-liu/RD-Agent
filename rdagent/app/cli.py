@@ -86,8 +86,9 @@ def fin_factor_cli(
     loop_n: Optional[int] = None,
     all_duration: Optional[str] = None,
     checkout: CheckoutOption = True,
+    region: Annotated[Optional[str], typer.Option("--region", "-r")] = None,
 ):
-    fin_factor(path=path, step_n=step_n, loop_n=loop_n, all_duration=all_duration, checkout=checkout)
+    fin_factor(path=path, step_n=step_n, loop_n=loop_n, all_duration=all_duration, checkout=checkout, region=region)
 
 
 @app.command(name="fin_model")
@@ -97,8 +98,9 @@ def fin_model_cli(
     loop_n: Optional[int] = None,
     all_duration: Optional[str] = None,
     checkout: CheckoutOption = True,
+    region: Annotated[Optional[str], typer.Option("--region", "-r")] = None,
 ):
-    fin_model(path=path, step_n=step_n, loop_n=loop_n, all_duration=all_duration, checkout=checkout)
+    fin_model(path=path, step_n=step_n, loop_n=loop_n, all_duration=all_duration, checkout=checkout, region=region)
 
 
 @app.command(name="fin_quant")
@@ -108,8 +110,9 @@ def fin_quant_cli(
     loop_n: Optional[int] = None,
     all_duration: Optional[str] = None,
     checkout: CheckoutOption = True,
+    region: Annotated[Optional[str], typer.Option("--region", "-r")] = None,
 ):
-    fin_quant(path=path, step_n=step_n, loop_n=loop_n, all_duration=all_duration, checkout=checkout)
+    fin_quant(path=path, step_n=step_n, loop_n=loop_n, all_duration=all_duration, checkout=checkout, region=region)
 
 
 @app.command(name="fin_factor_report")

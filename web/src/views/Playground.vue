@@ -800,6 +800,10 @@ const createScenarioFormData = () => {
   formData.append("competition", scenarioChecked.value.checkedName || "");
   formData.append("loops", resolvedLoopNumber);
   formData.append("all_duration", hourNumber.value);
+  const storedRegion = sessionStorage.getItem("selectedRegion");
+  if (storedRegion) {
+    formData.append("region", storedRegion);
+  }
 
   return formData;
 };
