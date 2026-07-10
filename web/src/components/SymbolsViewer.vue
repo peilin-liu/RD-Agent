@@ -11,6 +11,7 @@
         style="width:240px"
       />
       <el-date-picker v-model="dateRange" type="daterange" range-separator="~" start-placeholder="Start" end-placeholder="End" value-format="YYYY-MM-DD" @change="onDateChange" style="margin-left:12px" />
+      <el-checkbox v-model="adjust" @change="onAdjustChange" style="margin-left:12px">Adjusted prices</el-checkbox>
       <el-button type="primary" @click="fetchData" :loading="dataLoading" style="margin-left:12px">Load</el-button>
       <span v-if="errorMsg" class="error-msg">{{ errorMsg }}</span>
     </div>
@@ -40,6 +41,7 @@ const dateRange = ref<[string, string] | null>([
 ]);
 const dataLoading = ref(false);
 const errorMsg = ref("");
+const adjust = ref(false);
 const allFields = ref<string[]>([]);
 const enabledFields = ref<Set<string>>(new Set());
 const rawData = ref<Record<string, any>[]>([]);
@@ -72,6 +74,7 @@ async function loadSymbols() {
 
 function onSymbolChange() { fetchData(); }
 function onDateChange() { if (selectedSymbol.value) fetchData(); }
+function onAdjustChange() { if (selectedSymbol.value) fetchData(); }
 
 async function fetchData() {
   if (!selectedSymbol.value) return;
@@ -80,7 +83,7 @@ async function fetchData() {
   try {
     const start = dateRange.value?.[0] || "2024-01-01";
     const end = dateRange.value?.[1] || "2024-12-31";
-    const res = await getOHLCV(props.region, [selectedSymbol.value], [], start, end);
+    const res = await getOHLCV(props.region, [selectedSymbol.value], [], start, end, adjust.value);
     if (!res.columns || !res.data) { errorMsg.value = "Invalid response from server"; return; }
     const rows = res.data.map((row: any[]) => Object.fromEntries(res.columns.map((c: string, i: number) => [c, row[i]])));
     const normalized = rows.map((r: Record<string, any>) => {
@@ -95,7 +98,9 @@ async function fetchData() {
       keys.delete("date");
       keys.delete("instrument");
       allFields.value = Array.from(keys).sort();
-      enabledFields.value = new Set(allFields.value);
+      // Default: enable only price-like fields
+      const defaultFields = ["open", "high", "low", "close", "adjclose"];
+      enabledFields.value = new Set(defaultFields.filter(f => keys.has(f)));
     }
     await nextTick();
     renderChart();

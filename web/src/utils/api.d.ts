@@ -14,6 +14,7 @@ declare module '@/utils/api' {
     instruments: string[],
     fields: string[],
     start: string,
-    end: string
+    end: string,
+    adjust?: boolean
   ): Promise<{ columns: string[]; data: any[][] }>;
 }

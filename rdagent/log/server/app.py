@@ -707,6 +707,7 @@ def get_ohlcv(region: str):
             return jsonify({"error": f"Region '{region}' is not available. Check data path or calendar."}), 503
         if not fields:
             fields = provider.fields
+        adjust = bool(data.get("adjust", False))
 
         df = provider.query(instruments, fields, start, end)
         if df.empty:
@@ -715,6 +716,13 @@ def get_ohlcv(region: str):
         # Ensure date column is plain string for JSON serialization
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        # Adjusted prices: if requested, replace raw OHLC with adjusted values
+        if adjust and "$adjclose" in df.columns and "$close" in df.columns:
+            adj_ratio = df["$adjclose"] / df["$close"]
+            for raw_field in ["$open", "$high", "$low"]:
+                if raw_field in df.columns:
+                    df[raw_field] = df[raw_field] * adj_ratio
+            df["$close"] = df["$adjclose"]
         # Manually convert NaN to None so jsonify produces valid JSON (null)
         def _clean(v):
             try:
