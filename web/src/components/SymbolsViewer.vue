@@ -63,7 +63,13 @@ async function loadSymbols() {
   symbolsLoading.value = true;
   errorMsg.value = "";
   try {
-    symbols.value = await getSymbols(props.region);
+    const res = await getSymbols(props.region);
+    if (Array.isArray(res)) {
+      symbols.value = res;
+    } else {
+      symbols.value = [];
+      errorMsg.value = "Failed to load symbols: " + ((res as any)?.error || "invalid response");
+    }
   } catch (e: any) {
     symbols.value = [];
     errorMsg.value = "Failed to load symbols: " + (e?.message || e);

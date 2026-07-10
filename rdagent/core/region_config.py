@@ -37,6 +37,7 @@ class RegionInfo:
     qlib_data_path: str
     market: str
     benchmark: str
+    symbols_path: str = "/data/qlib_data/symbols"
     fields: list[str] = field(default_factory=lambda: ["$open", "$close", "$high", "$low", "$volume"])
 
 
@@ -77,6 +78,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
             benchmark=ri["benchmark"],
+            symbols_path=_resolve_path(ri.get("symbols_path", "/data/qlib_data/symbols")),
             fields=ri.get("fields", []),
         )
 
@@ -86,6 +88,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
             benchmark=ri["benchmark"],
+            symbols_path="/data/qlib_data/symbols",
             fields=[],
         )
 

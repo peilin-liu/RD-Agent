@@ -585,7 +585,7 @@ def test():
 # ---------- Qlib Data Provider (init once per region, reused) ----------
 
 _qlib_registry: dict[str, "QlibDataProvider"] = {}
-_qlib_failed_regions: set[str] = set()
+_qlib_failed_regions: dict[str, str] = {}
 _qlib_lock = threading.Lock()
 
 
@@ -596,6 +596,7 @@ class QlibDataProvider:
         ri = get_region_config(region)
         self.region = region
         self.provider_uri = ri.qlib_data_path
+        self.symbols_path = ri.symbols_path
         self.fields = ri.fields if ri.fields else ["$open", "$close", "$high", "$low", "$volume"]
         self._symbols: list[dict] = []
         self._verify_data_dir()
@@ -620,17 +621,22 @@ class QlibDataProvider:
         self.D = D
 
     def _load_symbols(self) -> None:
-        symbols_dir = Path("/data/qlib_data/symbols")
-        csv_path = None
-        for pat in [f"{self.region}_symbols.csv", f"{self.region}_benchmarks.csv"]:
-            candidate = symbols_dir / pat
-            if candidate.exists():
-                csv_path = candidate
-                break
-        if csv_path is None:
-            for f in symbols_dir.glob(f"{self.region}_*.csv"):
-                csv_path = f
-                break
+        p = Path(self.symbols_path)
+        if p.is_file():
+            csv_path = p
+        elif p.is_dir():
+            csv_path = None
+            for pat in [f"{self.region}_symbols.csv", f"{self.region}_benchmarks.csv"]:
+                candidate = p / pat
+                if candidate.exists():
+                    csv_path = candidate
+                    break
+            if csv_path is None:
+                for f in p.glob(f"{self.region}_*.csv"):
+                    csv_path = f
+                    break
+        else:
+            csv_path = None
         if csv_path is not None:
             self._symbols = pd.read_csv(csv_path).to_dict(orient="records")
         else:
@@ -670,8 +676,8 @@ def _get_provider(region: str) -> QlibDataProvider | None:
         if region not in _qlib_registry:
             try:
                 _qlib_registry[region] = QlibDataProvider(region)
-            except Exception:
-                _qlib_failed_regions.add(region)
+            except Exception as e:
+                _qlib_failed_regions[region] = str(e)
                 raise
         return _qlib_registry[region]
 
@@ -681,7 +687,8 @@ def get_symbols(region: str):
     """Return cached symbols list for a region (loaded at startup)."""
     provider = _get_provider(region)
     if provider is None:
-        return jsonify({"error": f"Region '{region}' is not available. Check data path or calendar."}), 503
+        err = _qlib_failed_regions.get(region, "unknown error")
+        return jsonify({"error": f"Region '{region}' failed to load: {err}"}), 503
     return jsonify(provider._symbols)
 
 
@@ -704,7 +711,8 @@ def get_ohlcv(region: str):
     try:
         provider = _get_provider(region)
         if provider is None:
-            return jsonify({"error": f"Region '{region}' is not available. Check data path or calendar."}), 503
+            err = _qlib_failed_regions.get(region, "unknown error")
+            return jsonify({"error": f"Region '{region}' failed to load: {err}"}), 503
         if not fields:
             fields = provider.fields
         adjust = bool(data.get("adjust", False))

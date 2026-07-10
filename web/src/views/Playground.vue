@@ -672,11 +672,12 @@ const currentRegion = ref("cn");
 onMounted(async () => {
   try {
     const res = await getRegions();
-    regionList.value = res.regions || [];
+    const regions = Array.isArray(res?.regions) ? res.regions : [];
+    regionList.value = regions;
     const saved = sessionStorage.getItem("selectedRegion");
     currentRegion.value =
-      (res.regions && res.regions.includes(saved || "") ? saved : res.default_region) ||
-      (res.regions && res.regions.length ? res.regions[0] : "cn");
+      (regions.includes(saved || "") ? saved : res?.default_region) ||
+      (regions.length ? regions[0] : "cn");
     sessionStorage.setItem("selectedRegion", currentRegion.value);
   } catch {
     currentRegion.value = sessionStorage.getItem("selectedRegion") || "cn";
