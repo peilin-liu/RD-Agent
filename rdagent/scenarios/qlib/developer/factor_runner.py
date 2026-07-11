@@ -85,7 +85,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             "test_start": fbps.test_start,
             "feature_names": str(list(exp.base_features.keys())),
             "feature_expressions": str(list(exp.base_features.values())),
-            "qlib_provider_uri": ri.qlib_data_path,
+            "qlib_provider_uri": "/root/.qlib_data",
             "qlib_region": region,
             "qlib_market": ri.market,
             "qlib_benchmark": ri.benchmark,

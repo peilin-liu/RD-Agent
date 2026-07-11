@@ -1023,17 +1023,28 @@ class QlibDockerConf(DockerConf):
         super().__init__(**data)
         from rdagent.core.region_config import get_region_config
 
-        ri = get_region_config()
+        # Runner selects region via QLIB_REGION env (factor/model_runner); QlibDockerConf
+        # must honor the same env so the mount matches the runner's region.
+        region = os.environ.get("QLIB_REGION") or None
+        ri = get_region_config(region)
         qlib_path = Path(ri.qlib_data_path)
-        # Mount a common ancestor so that multiple region data dirs are all visible.
-        # If data is at /data/qlib_data/qlib_bin/market_daily/cn/, mount /data/qlib_data/.
-        # Fall back to ~/.qlib/ for backward compatibility.
+        # Mount the region data dir to a fixed in-container path. Both generate.py
+        # (QLIB_PROVIDER_URI) and the conf.yaml provider_uri (qlib_provider_uri injected
+        # by factor/model_runner) must resolve to this same path so qlib.init finds data.
+        in_container_data_root = "/root/.qlib_data"
         mount_host = str(qlib_path.expanduser().resolve())
         self.extra_volumes = {
             mount_host: {
-                "bind": "/root/.qlib_data/",
+                "bind": in_container_data_root,
                 "mode": "rw",
             }
+        }
+        # Propagate the in-container provider_uri to generate.py (which reads
+        # QLIB_PROVIDER_URI) so it matches the mount point instead of its default
+        # ~/.qlib/qlib_data/cn_data (which is not mounted).
+        self.env_dict = {
+            **self.env_dict,
+            "QLIB_PROVIDER_URI": in_container_data_root,
         }
 
     shm_size: str | None = "16g"

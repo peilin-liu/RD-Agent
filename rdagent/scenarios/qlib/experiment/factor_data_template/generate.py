@@ -4,7 +4,7 @@ import sys
 import qlib
 from qlib.data import D
 
-_provider_uri = os.environ.get("QLIB_PROVIDER_URI", "~/.qlib/qlib_data/cn_data")
+_provider_uri = os.environ.get("QLIB_PROVIDER_URI", "/root/.qlib_data")
 qlib.init(provider_uri=_provider_uri)
 
 instruments = D.instruments()
