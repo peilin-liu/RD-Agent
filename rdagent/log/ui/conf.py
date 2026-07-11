@@ -1,6 +1,11 @@
+from pathlib import Path
+
 from pydantic_settings import SettingsConfigDict
 
 from rdagent.core.conf import ExtendedBaseSettings
+
+# Project root: rdagent/log/ui/conf.py -> ui -> log -> rdagent -> <project root>
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class UIBasePropSetting(ExtendedBaseSettings):
@@ -14,7 +19,7 @@ class UIBasePropSetting(ExtendedBaseSettings):
 
     amlt_path: str = "/data/share_folder_local/amlt"
 
-    static_path: str = "./git_ignore_folder/static"
+    static_path: str = str(_PROJECT_ROOT / "git_ignore_folder" / "static")
 
     trace_folder: str = "./git_ignore_folder/traces"
 

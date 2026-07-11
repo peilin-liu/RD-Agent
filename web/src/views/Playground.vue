@@ -396,7 +396,7 @@
 <script setup>
 import { computed, ref, watch, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
-import { getHistoryTraceIds, uploadFile, getRegions, setRegion } from "../utils/api";
+import { getHistoryTraceIds, uploadFile, getRegions, setRegion, getScenarioInfo, getDataRange } from "../utils/api";
 import selectComponent from "../components/select-component.vue";
 import smSelectComponent from "../components/sm-select-component.vue";
 import SymbolsViewer from "../components/SymbolsViewer.vue";
@@ -669,6 +669,65 @@ const tabIndex = ref(0);
 const regionList = ref([]);
 const currentRegion = ref("cn");
 
+function formatDataDesc(split, dataRange) {
+  if (!split) return null;
+  const seg = (s, e) => (s || e ? `${s || "?"} to ${e || "?"}` : null);
+  const train = seg(split.train_start, split.train_end);
+  const valid = seg(split.valid_start, split.valid_end);
+  const test = seg(split.test_start, split.test_end);
+  const parts = [];
+  if (train) parts.push(`training data from ${train}`);
+  if (valid) parts.push(`validation data from ${valid}`);
+  if (test) parts.push(`test data from ${test}`);
+  let desc = parts.length
+    ? `The dataset includes daily stock data, with ${parts.join(", ")}.`
+    : `The dataset includes daily stock data.`;
+  if (dataRange && dataRange.start && dataRange.end) {
+    desc += ` Available data covers ${dataRange.start} to ${dataRange.end}.`;
+  }
+  return desc;
+}
+
+const scenarioSettingKey = (name) => {
+  if (name.includes("General Model")) return null; // non-Qlib scenario, keep its own description
+  if (name.includes("Data Science")) return null;  // Kaggle scenario, keep its own description
+  if (name.includes("Whole Pipeline")) return "quant";
+  if (name.includes("Model Implementation")) return "model";
+  return "factor";
+};
+
+async function refreshDataDescriptions() {
+  try {
+    const [info, ranges] = await Promise.all([
+      getScenarioInfo().catch(() => null),
+      getDataRange().catch(() => null),
+    ]);
+    if (!info && !ranges) return;
+    const dr =
+      ranges?.regions?.[currentRegion.value] ||
+      ranges?.regions?.["cn"] ||
+      null;
+    const lists = [continuousScenarioList, guidedScenarioList];
+    for (const list of lists) {
+      for (const sc of list) {
+        const key = scenarioSettingKey(sc.name);
+        if (!key) continue;
+        const split = info?.[key];
+        const desc = formatDataDesc(split, dr);
+        if (desc && sc.introduce) sc.introduce["Data Description"] = desc;
+      }
+    }
+    // trigger reactivity: re-assign current scenario so template re-reads introduce
+    if (scenarioChecked.value) {
+      const cur = scenarioChecked.value;
+      scenarioChecked.value = { ...cur, introduce: { ...cur.introduce } };
+      introName.value = Object.keys(scenarioChecked.value.introduce);
+    }
+  } catch {
+    // keep defaults if backend unavailable
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await getRegions();
@@ -682,11 +741,13 @@ onMounted(async () => {
   } catch {
     currentRegion.value = sessionStorage.getItem("selectedRegion") || "cn";
   }
+  refreshDataDescriptions();
 });
 
 function onRegionChange(val) {
   sessionStorage.setItem("selectedRegion", val);
   setRegion(val).catch(() => {});
+  refreshDataDescriptions();
 }
 
 function openDataExplorer() {

@@ -98,3 +98,17 @@ export function getOHLCV(region, instruments, fields, start, end, adjust) {
         data: { instruments, fields, start, end, adjust },
     })
 }
+
+export function getScenarioInfo() {
+    return request({
+        url: url + "api/scenario_info",
+        method: 'get',
+    })
+}
+
+export function getDataRange() {
+    return request({
+        url: url + "api/data_range",
+        method: 'get',
+    })
+}

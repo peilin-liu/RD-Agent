@@ -206,9 +206,13 @@ def favicon():
 
 
 def _normalize_static_request_path(fn: str) -> str:
-    static_prefix = UI_SETTING.static_path.strip("./")
-    if static_prefix and fn.startswith(f"{static_prefix}/"):
-        return fn[len(static_prefix) + 1 :]
+    # Strip a leading static_path prefix from the request path (supports both
+    # relative ("./git_ignore_folder/static/...") and absolute paths).
+    prefix = UI_SETTING.static_path
+    # Normalize to a posix-style relative segment for prefix matching
+    rel_prefix = prefix.lstrip("./").lstrip("/")
+    if rel_prefix and fn.startswith(f"{rel_prefix}/"):
+        return fn[len(rel_prefix) + 1 :]
     return fn
 
 
@@ -610,6 +614,18 @@ class QlibDataProvider:
         if not (p / "calendars" / "day.txt").exists():
             raise ValueError(f"Calendar not found: {p / 'calendars' / 'day.txt'}")
 
+    @property
+    def data_range(self) -> tuple[str, str]:
+        """Return (first_date, last_date) from calendars/day.txt."""
+        cal = Path(self.provider_uri) / "calendars" / "day.txt"
+        if not cal.exists():
+            return ("", "")
+        with open(cal, encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+        if not lines:
+            return ("", "")
+        return (lines[0], lines[-1])
+
     def _init_qlib(self) -> None:
         import qlib
         from qlib.data import D
@@ -783,6 +799,56 @@ def set_region():
 
     set_default_region(region)
     return jsonify({"status": "success", "region": region}), 200
+
+
+@app.route("/api/scenario_info", methods=["GET"])
+def get_scenario_info():
+    """Return the configured Qlib data split for each scenario.
+
+    Reads from the QLIB_FACTOR_ / QLIB_MODEL_ / QLIB_QUANT_ env-driven settings so the
+    frontend can display the real data source instead of a hardcoded description.
+    """
+    try:
+        from rdagent.app.qlib_rd_loop.conf import (  # type: ignore
+            FACTOR_PROP_SETTING,
+            MODEL_PROP_SETTING,
+            QUANT_PROP_SETTING,
+        )
+
+        def _split(s):
+            return {
+                "train_start": s.train_start,
+                "train_end": s.train_end,
+                "valid_start": s.valid_start,
+                "valid_end": s.valid_end,
+                "test_start": s.test_start,
+                "test_end": s.test_end,
+            }
+
+        return jsonify({
+            "factor": _split(FACTOR_PROP_SETTING),
+            "model": _split(MODEL_PROP_SETTING),
+            "quant": _split(QUANT_PROP_SETTING),
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/data_range", methods=["GET"])
+def get_data_range():
+    """Return the actual data coverage (first/last date) for each available region,
+    read from <qlib_data_path>/calendars/day.txt."""
+    from rdagent.core.region_config import get_available_regions
+
+    out = {}
+    for region in get_available_regions():
+        provider = _get_provider(region)
+        if provider is None:
+            out[region] = {"start": "", "end": "", "error": _qlib_failed_regions.get(region, "unknown")}
+        else:
+            start, end = provider.data_range
+            out[region] = {"start": start, "end": end}
+    return jsonify({"regions": out}), 200
 
 
 @app.route("/", methods=["GET"])
