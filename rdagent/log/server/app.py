@@ -721,6 +721,14 @@ def get_ohlcv(region: str):
         if df.empty:
             return jsonify({"data": []})
         df = df.reset_index()
+        # Drop suspended days: volume == 0 or key price fields are all NaN
+        if "$volume" in df.columns:
+            df = df[df["$volume"].fillna(0) > 0]
+        if "$close" in df.columns:
+            df = df[df["$close"].notna()]
+        if df.empty:
+            return jsonify({"data": []})
+        df = df.reset_index(drop=True)
         # Ensure date column is plain string for JSON serialization
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
