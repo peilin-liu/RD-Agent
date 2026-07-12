@@ -1,6 +1,7 @@
 import pandas as pd
 
 from rdagent.app.qlib_rd_loop.conf import ModelBasePropSetting
+from rdagent.components.coder.model_coder.conf import ModelCoSTEERSettings
 from rdagent.components.runner import CachedRunner
 from rdagent.core.conf import RD_AGENT_SETTINGS
 from rdagent.core.exception import ModelEmptyError
@@ -65,6 +66,8 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
 
         region = os.environ.get("QLIB_REGION", "cn")
         ri = get_region_config(region)
+        # conda: host path; docker: in-container mount target set by QlibDockerConf
+        qlib_provider_uri = "/root/.qlib_data" if ModelCoSTEERSettings().env_type == "docker" else ri.qlib_data_path
         env_to_use = {
             "PYTHONPATH": "./",
             "train_start": mbps.train_start,
@@ -74,7 +77,7 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
             "test_start": mbps.test_start,
             "feature_names": str(list(exp.base_features.keys())),
             "feature_expressions": str(list(exp.base_features.values())),
-            "qlib_provider_uri": "/root/.qlib_data",
+            "qlib_provider_uri": qlib_provider_uri,
             "qlib_region": region,
             "qlib_market": ri.market,
             "qlib_benchmark": ri.benchmark,
