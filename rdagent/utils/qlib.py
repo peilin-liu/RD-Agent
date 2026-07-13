@@ -192,7 +192,7 @@ from qlib.data import D
 
 qlib.init()  
 expressions = {experessions}
-df = D.features(["SH600000"], expressions, start_time="2008-01-01", end_time="2020-08-31")
+df = D.features(["SH600000"], expressions, start_time="2010-01-04", end_time="2020-08-31")
 """
 
 

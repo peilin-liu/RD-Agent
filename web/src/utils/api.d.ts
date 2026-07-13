@@ -7,6 +7,7 @@ declare module '@/utils/api' {
   export function submitUserInteraction(data: any): Promise<any>;
   export function getStdoutDownloadUrl(traceId: string): string;
   export function getRegions(): Promise<{ regions: string[]; default_region: string }>;
+  export function getMarkets(region: string): Promise<{ region: string; markets: string[] }>;
   export function setRegion(region: string): Promise<any>;
   export function getSymbols(region: string): Promise<Array<{ symbol: string; name: string; listing_date?: string }>>;
   export function getOHLCV(

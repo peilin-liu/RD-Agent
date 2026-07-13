@@ -70,6 +70,14 @@ export function getRegions() {
     })
 }
 
+export function getMarkets(region) {
+    const query = new URLSearchParams({ region });
+    return request({
+        url: url + "api/markets?" + query.toString(),
+        method: 'get',
+    })
+}
+
 export function setRegion(region) {
     return request({
         url: url + "api/region",

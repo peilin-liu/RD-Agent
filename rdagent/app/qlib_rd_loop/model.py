@@ -11,6 +11,7 @@ from rdagent.app.qlib_rd_loop.conf import MODEL_PROP_SETTING
 from rdagent.components.workflow.rd_loop import RDLoop
 from rdagent.core.exception import ModelEmptyError
 from rdagent.core.region_config import get_default_region
+from rdagent.log import rdagent_logger as logger
 
 
 class ModelRDLoop(RDLoop):
@@ -25,12 +26,19 @@ def main(
     checkout: bool = True,
     base_features_path: str | None = None,
     region: str | None = None,
+    market: str | None = None,
     **kwargs,
 ):
     """
     Auto R&D Evolving loop for fintech models
     """
-    os.environ["QLIB_REGION"] = region or get_default_region()
+    resolved_region = region or get_default_region()
+    os.environ["QLIB_REGION"] = resolved_region
+    os.environ["QLIB_MARKET"] = market or ""
+    logger.info(
+        f"[task start] scenario=fin_model region={resolved_region} market={market or '(region default)'}"
+    )
+    logger.log_object({"region": resolved_region, "market": market or ""}, tag="task.meta")
 
     if path is None:
         model_loop = ModelRDLoop(MODEL_PROP_SETTING)

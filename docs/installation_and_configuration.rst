@@ -222,7 +222,7 @@ Add the following entries to your ``.env`` file as needed:
 
 .. code-block:: properties
 
-   QLIB_FACTOR_TRAIN_START=<train start date, default is 2008-01-01>
+   QLIB_FACTOR_TRAIN_START=<train start date, default is 2010-01-04>
    QLIB_FACTOR_TRAIN_END=<train end date, default is 2014-12-31>
    QLIB_FACTOR_VALID_START=<valid start date, default is 2015-01-01>
    QLIB_FACTOR_VALID_END=<valid end date, default is 2016-12-31>
@@ -238,7 +238,7 @@ environment variables:
 
 .. code-block:: properties
 
-   QLIB_MODEL_TRAIN_START=<train start date, default is 2008-01-01>
+   QLIB_MODEL_TRAIN_START=<train start date, default is 2010-01-04>
    QLIB_MODEL_TRAIN_END=<train end date, default is 2014-12-31>
    QLIB_MODEL_VALID_START=<valid start date, default is 2015-01-01>
    QLIB_MODEL_VALID_END=<valid end date, default is 2016-12-31>
@@ -261,21 +261,21 @@ You may configure the following variables in your ``.env`` file:
 
 .. code-block:: properties
 
-   QLIB_FACTOR_TRAIN_START=<train start date, default is 2008-01-01>
+   QLIB_FACTOR_TRAIN_START=<train start date, default is 2010-01-04>
    QLIB_FACTOR_TRAIN_END=<train end date, default is 2014-12-31>
    QLIB_FACTOR_VALID_START=<valid start date, default is 2015-01-01>
    QLIB_FACTOR_VALID_END=<valid end date, default is 2016-12-31>
    QLIB_FACTOR_TEST_START=<test / backtest start date, default is 2017-01-01>
    QLIB_FACTOR_TEST_END=<test / backtest end date, default is 2020-12-31>
 
-   QLIB_MODEL_TRAIN_START=<train start date, default is 2008-01-01>
+   QLIB_MODEL_TRAIN_START=<train start date, default is 2010-01-04>
    QLIB_MODEL_TRAIN_END=<train end date, default is 2014-12-31>
    QLIB_MODEL_VALID_START=<valid start date, default is 2015-01-01>
    QLIB_MODEL_VALID_END=<valid end date, default is 2016-12-31>
    QLIB_MODEL_TEST_START=<test / backtest start date, default is 2017-01-01>
    QLIB_MODEL_TEST_END=<test / backtest end date, default is 2020-12-31>
 
-   QLIB_QUANT_TRAIN_START=<train start date, default is 2008-01-01>
+   QLIB_QUANT_TRAIN_START=<train start date, default is 2010-01-04>
    QLIB_QUANT_TRAIN_END=<train end date, default is 2014-12-31>
    QLIB_QUANT_VALID_START=<valid start date, default is 2015-01-01>
    QLIB_QUANT_VALID_END=<valid end date, default is 2016-12-31>

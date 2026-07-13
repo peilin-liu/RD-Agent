@@ -66,6 +66,11 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
 
         region = os.environ.get("QLIB_REGION", "cn")
         ri = get_region_config(region)
+        market = os.environ.get("QLIB_MARKET") or ri.market
+        logger.info(
+            f"[qlib market] region={region} configured_market={ri.market} "
+            f"override={os.environ.get('QLIB_MARKET') or ''} -> using market={market}"
+        )
         # conda: host path; docker: in-container mount target set by QlibDockerConf
         qlib_provider_uri = "/root/.qlib_data" if ModelCoSTEERSettings().env_type == "docker" else ri.qlib_data_path
         env_to_use = {
@@ -79,7 +84,7 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
             "feature_expressions": str(list(exp.base_features.values())),
             "qlib_provider_uri": qlib_provider_uri,
             "qlib_region": region,
-            "qlib_market": ri.market,
+            "qlib_market": market,
             "qlib_benchmark": ri.benchmark,
         }
         if mbps.test_end is not None:

@@ -17,6 +17,7 @@ Format:
 import json
 from pathlib import Path
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Optional
 
 DEFAULT_CONFIG_PATH = Path.home() / ".rd-agent" / "config.json"
@@ -107,3 +108,59 @@ def set_default_region(region: str) -> None:
     DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+class MarketCache:
+    """进程内单例缓存：扫描每个 region 的 instruments 目录得到可用 market 列表。
+
+    启动时调 scan_all_regions() 初始化；运行中通过 get_cached_markets(region) 读缓存，
+    不再扫盘。运行时新增 market 需重启进程生效。
+    """
+
+    _instance: Optional["MarketCache"] = None
+    _lock = Lock()
+
+    def __init__(self) -> None:
+        self._cache: dict[str, list[str]] = {}
+
+    @classmethod
+    def instance(cls) -> "MarketCache":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def scan_region(self, region: str) -> list[str]:
+        """扫描该 region 的 qlib_data_path/instruments/*.txt，文件名去 .txt 得 market 列表。"""
+        try:
+            ri = get_region_config(region)
+        except KeyError:
+            return []
+        instruments_dir = Path(ri.qlib_data_path) / "instruments"
+        if not instruments_dir.is_dir():
+            return []
+        markets = sorted(p.stem for p in instruments_dir.glob("*.txt") if p.is_file())
+        return markets
+
+    def scan_all_regions(self) -> dict[str, list[str]]:
+        """遍历所有已配置 region，扫描各自的 instruments 目录并缓存结果。"""
+        cache: dict[str, list[str]] = {}
+        for region in get_available_regions():
+            cache[region] = self.scan_region(region)
+        self._cache = cache
+        return cache
+
+    def get_cached_markets(self, region: str) -> list[str]:
+        """读缓存返回 market 列表（不扫盘）。缓存未初始化或 region 未知时返回空列表。"""
+        return list(self._cache.get(region, []))
+
+
+def get_cached_markets(region: str) -> list[str]:
+    """便捷包装：读进程内 MarketCache 单例返回 region 的 market 列表。"""
+    return MarketCache.instance().get_cached_markets(region)
+
+
+def scan_all_regions() -> dict[str, list[str]]:
+    """便捷包装：扫描所有 region 并初始化/刷新进程内 MarketCache。"""
+    return MarketCache.instance().scan_all_regions()

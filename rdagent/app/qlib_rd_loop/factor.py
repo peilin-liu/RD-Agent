@@ -38,12 +38,19 @@ def main(
     checkout_path: Optional[str] = None,
     base_features_path: Optional[str] = None,
     region: Optional[str] = None,
+    market: Optional[str] = None,
     **kwargs,
 ):
     """
     Auto R&D Evolving loop for fintech factors.
     """
-    os.environ["QLIB_REGION"] = region or get_default_region()
+    resolved_region = region or get_default_region()
+    os.environ["QLIB_REGION"] = resolved_region
+    os.environ["QLIB_MARKET"] = market or ""
+    logger.info(
+        f"[task start] scenario=fin_factor region={resolved_region} market={market or '(region default)'}"
+    )
+    logger.log_object({"region": resolved_region, "market": market or ""}, tag="task.meta")
 
     if not checkout_path is None:
         checkout = Path(checkout_path)

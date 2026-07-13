@@ -6,7 +6,7 @@ market: &market {{ qlib_market | default("csi300", true) }}
 benchmark: &benchmark {{ qlib_benchmark | default("SH000300", true) }}
 
 data_handler_config: &data_handler_config
-    start_time: {{ train_start | default("2008-01-01", true) }}
+    start_time: {{ train_start | default("2010-01-04", true) }}
     end_time: {{ test_end | default("null", true) }}
     instruments: *market
     data_loader:
@@ -28,7 +28,7 @@ data_handler_config: &data_handler_config
           kwargs:
               fields_group: feature
               clip_outlier: true
-              fit_start_time: {{ train_start | default("2008-01-01", true) }}
+              fit_start_time: {{ train_start | default("2010-01-04", true) }}
               fit_end_time: {{ train_end | default("2014-12-31", true) }}
         - class: Fillna
           kwargs:
@@ -82,7 +82,7 @@ task:
                 module_path: qlib.contrib.data.handler
                 kwargs: *data_handler_config
             segments:
-                train: [{{ train_start | default("2008-01-01", true) }}, {{ train_end | default("2014-12-31", true) }}]
+                train: [{{ train_start | default("2010-01-04", true) }}, {{ train_end | default("2014-12-31", true) }}]
                 valid: [{{ valid_start | default("2015-01-01", true) }}, {{ valid_end | default("2016-12-31", true) }}]
                 test: [{{ test_start | default("2017-01-01", true) }}, {{ test_end | default("null", true) }}]
     record: 

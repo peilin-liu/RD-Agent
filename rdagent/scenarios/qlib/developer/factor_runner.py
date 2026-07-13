@@ -76,6 +76,11 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
 
         region = os.environ.get("QLIB_REGION", "cn")
         ri = get_region_config(region)
+        market = os.environ.get("QLIB_MARKET") or ri.market
+        logger.info(
+            f"[qlib market] region={region} configured_market={ri.market} "
+            f"override={os.environ.get('QLIB_MARKET') or ''} -> using market={market}"
+        )
         env_to_use = {
             "PYTHONPATH": "./",
             "train_start": fbps.train_start,
@@ -87,7 +92,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             "feature_expressions": str(list(exp.base_features.values())),
             "qlib_provider_uri": ri.qlib_data_path,
             "qlib_region": region,
-            "qlib_market": ri.market,
+            "qlib_market": market,
             "qlib_benchmark": ri.benchmark,
         }
         if fbps.test_end is not None:

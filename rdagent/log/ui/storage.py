@@ -264,6 +264,21 @@ class WebStorage(Storage):
                     ],
                 },
             }
+        elif "task.meta" in tag:
+            # obj is a dict {"region":..., "market":...} logged at task start
+            content = obj if isinstance(obj, dict) else {}
+            data = {
+                "id": id,
+                "msg": {
+                    "tag": "task.meta",
+                    "timestamp": timestamp,
+                    "loop_id": li,
+                    "content": {
+                        "region": content.get("region", ""),
+                        "market": content.get("market", ""),
+                    },
+                },
+            }
         elif "scenario" in tag:
             data = {
                 "id": id,

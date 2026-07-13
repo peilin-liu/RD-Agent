@@ -285,6 +285,39 @@
                   </el-radio-group>
                 </div>
               </div>
+              <div class="compact-setting-row is-third" v-if="isFinQlibScenario">
+                <div class="title with-tip compact-setting-title">
+                  Market
+                  <el-tooltip
+                    effect="dark"
+                    :offset="8"
+                    content="Qlib instruments (symbols pool). Defaults to the region's market if not set."
+                    placement="top"
+                  >
+                    <span class="tip-icon">?</span>
+                  </el-tooltip>
+                </div>
+                <div class="radio-box compact-config-box compact-setting-box">
+                  <el-select
+                    v-if="marketList.length > 0"
+                    v-model="currentMarket"
+                    @change="onMarketChange"
+                    filterable
+                    size="small"
+                    style="width: 160px"
+                  >
+                    <el-option v-for="m in marketList" :key="m" :label="m" :value="m" />
+                  </el-select>
+                  <el-input
+                    v-else
+                    v-model="currentMarket"
+                    @change="onMarketChange"
+                    size="small"
+                    placeholder="market name"
+                    style="width: 160px"
+                  />
+                </div>
+              </div>
             </div>
             <div
               class="btn-main"
@@ -396,7 +429,7 @@
 <script setup>
 import { computed, ref, watch, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
-import { getHistoryTraceIds, uploadFile, getRegions, setRegion, getScenarioInfo, getDataRange } from "../utils/api";
+import { getHistoryTraceIds, uploadFile, getRegions, getMarkets, setRegion, getScenarioInfo, getDataRange } from "../utils/api";
 import selectComponent from "../components/select-component.vue";
 import smSelectComponent from "../components/sm-select-component.vue";
 import SymbolsViewer from "../components/SymbolsViewer.vue";
@@ -515,7 +548,7 @@ const continuousScenarioList = [
     loopNumber: 3,
     introduce: {
       Introduction: `Applying R&D-Agent on finance Data Agent to automate the iterative process of evolving and trading financial factors by proposing, developing, evaluating, and refining them. The scenario is built on Qlib. `,
-      "Data Description": `The dataset is includes daily stock data from the CSI300 index, with training data from 2008-2014, validation data from 2015-2016, and test data from 2017-2020. `,
+      "Data Description": `The dataset is includes daily stock data from the CSI300 index, with training data from 2010-2026, validation data from 2015-2016, and test data from 2017-2020. `,
       "Evaluation Method": `The performance of new financial factors is assessed through quantitative backtesting using Qlib. This process evaluates both the prediction accuracy and the final profit. `,
       "Scenario Breakdown": `... Round♾️ N:
   	→ [🔍Research to generate hypothesis] → (hypothesis)
@@ -538,7 +571,7 @@ const continuousScenarioList = [
     loopNumber: 3,
     introduce: {
       Introduction: `Applying R&D-Agent on finance data to automate iterative model evolution and quantitative trading by generating, implementing, and refining financial models for optimal performance. The scenario is built on Qlib. `,
-      "Data Description": `The dataset includes daily stock data from the CSI300 index, with training data from 2008-2014, validation data from 2015-2016, and test data from 2017-2020. `,
+      "Data Description": `The dataset includes daily stock data from the CSI300 index, with training data from 2010-2026, validation data from 2015-2016, and test data from 2017-2020. `,
       "Evaluation Method": `The performance of new developed models is assessed through quantitative backtesting using Qlib. This process evaluates both the prediction accuracy and the final profit. `,
       "Scenario Breakdown": `... Round♾️ N:
   	→ [🔍Research to generate hypothesis] → (hypothesis)
@@ -561,7 +594,7 @@ const continuousScenarioList = [
     loopNumber: 3,
     introduce: {
       Introduction: `R&D-Agent runs a full finance pipeline on Qlib, combining Finance Data Building and Finance Model Implementation. In each loop, the LLM decides whether to focus on factor engineering or model implementation based on current feedback.`,
-      "Data Description": `Daily CSI300 stock data is used (train: 2008-2014, valid: 2015-2016, test: 2017-2020). Each round may work on factors or models, depending on what the LLM judges as most beneficial.`,
+      "Data Description": `Daily CSI300 stock data is used (train: 2010-2016, valid: 2017-2020, test: 2021-2024). Each round may work on factors or models, depending on what the LLM judges as most beneficial.`,
       "Evaluation Method": `Each loop is validated by quantitative backtesting in Qlib. Backtesting results are fed back to the LLM, which then chooses the next focus (factor or model) to improve prediction and trading performance.`,
       "Scenario Breakdown": `... Round♾️ N:
   	→ [🔍Research + Planning] → (LLM chooses factor or model focus)
@@ -619,7 +652,7 @@ const guidedScenarioList = [
     hourNumber: 24,
     introduce: {
       Introduction: `Applying R&D-Agent on finance data like a copilot to automatically extract knowledge from research reports on well-known financial factors, then implements and evaluates them to improve quantitative trading strategies. The scenario is built on Qlib.`,
-      "Data Description": `The dataset includes daily stock data from the CSI300 index, with training data from 2008-2014, validation data from 2015-2016, and test data from 2017-2020. `,
+      "Data Description": `The dataset includes daily stock data from the CSI300 index, with training data from 2010-2016, validation data from 2017-2020, and test data from 2021-2024. `,
       "Evaluation Method": `The performance of new financial factors is assessed through quantitative backtesting using Qlib. This process evaluates both the prediction accuracy and the final profit. `,
       "Scenario Breakdown": `... Round♾️ N:
 	→ [🔍Research to extract well-known financial factors] → (Experiment Tasks) 
@@ -668,6 +701,36 @@ const tabIndex = ref(0);
 // Region selector
 const regionList = ref([]);
 const currentRegion = ref("cn");
+
+// Market selector (qlib scenarios only)
+const FIN_QLIB_SCENARIOS = new Set([
+  "Finance Data Building",
+  "Finance Model Implementation",
+  "Finance Whole Pipeline",
+]);
+const marketList = ref([]);
+const currentMarket = ref("");
+
+const isFinQlibScenario = computed(() => {
+  return scenarioChecked.value && FIN_QLIB_SCENARIOS.has(scenarioChecked.value.name);
+});
+
+async function refreshMarkets(region) {
+  if (!region) {
+    marketList.value = [];
+    return;
+  }
+  try {
+    const res = await getMarkets(region);
+    marketList.value = Array.isArray(res?.markets) ? res.markets : [];
+  } catch {
+    marketList.value = [];
+  }
+}
+
+function onMarketChange(val) {
+  if (val) sessionStorage.setItem("selectedMarket", val);
+}
 
 function formatDataDesc(split, dataRange) {
   if (!split) return null;
@@ -741,12 +804,22 @@ onMounted(async () => {
   } catch {
     currentRegion.value = sessionStorage.getItem("selectedRegion") || "cn";
   }
+  refreshMarkets(currentRegion.value);
+  const savedMarket = sessionStorage.getItem("selectedMarket");
+  if (savedMarket) currentMarket.value = savedMarket;
   refreshDataDescriptions();
 });
 
 function onRegionChange(val) {
   sessionStorage.setItem("selectedRegion", val);
   setRegion(val).catch(() => {});
+  refreshMarkets(val).then(() => {
+    // reset market if cached list doesn't contain current selection
+    if (marketList.value.length > 0 && !marketList.value.includes(currentMarket.value)) {
+      currentMarket.value = marketList.value[0];
+      sessionStorage.setItem("selectedMarket", currentMarket.value);
+    }
+  });
   refreshDataDescriptions();
 }
 
@@ -918,6 +991,12 @@ const createScenarioFormData = () => {
   const storedRegion = sessionStorage.getItem("selectedRegion");
   if (storedRegion) {
     formData.append("region", storedRegion);
+  }
+  if (isFinQlibScenario.value) {
+    const storedMarket = sessionStorage.getItem("selectedMarket");
+    if (storedMarket) {
+      formData.append("market", storedMarket);
+    }
   }
 
   return formData;
@@ -1868,6 +1947,11 @@ onMounted(() => {
       }
 
       .compact-setting-row.is-second {
+        margin-top: 0.28em;
+        padding-top: 0;
+      }
+
+      .compact-setting-row.is-third {
         margin-top: 0.28em;
         padding-top: 0;
       }

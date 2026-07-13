@@ -15,6 +15,10 @@
         @toggleAutoSkip="handleAutoSkipToggle"
       ></loopComponent>
       <div class="main-content">
+        <div class="task-meta-bar" v-if="taskMeta && (taskMeta.region || taskMeta.market)">
+          <span class="task-meta-label" v-if="taskMeta.region">Region: <strong>{{ taskMeta.region }}</strong></span>
+          <span class="task-meta-label" v-if="taskMeta.market">Market: <strong>{{ taskMeta.market }}</strong></span>
+        </div>
         <div class="tab-title" v-if="developer">
           <div class="tab-box">
             <div
@@ -514,6 +518,7 @@ const editLoop = ref(props.editLoop);
 const developer = ref(props.developer);
 const scenarioName = ref(props.scenarioName);
 const stopFlag = ref(false);
+const taskMeta = ref(null);
 let transitionTimer = undefined;
 const tabIndex = ref(0);
 const tabProcessIndex = ref(0);
@@ -974,7 +979,11 @@ let pdfImageTemp = "";
 const firstPollFlag = ref(true);
 function getData(data) {
   data.forEach((item) => {
-    if (item.tag == "feedback.hypothesis_feedback") {
+    if (item.tag == "task.meta") {
+      if (item.content && (item.content.region || item.content.market)) {
+        taskMeta.value = item.content;
+      }
+    } else if (item.tag == "feedback.hypothesis_feedback") {
       onePollDataObj.feedbackHypothesis = item.content;
       if (!loopClickFlag.value) {
         tabChange(2);
@@ -1247,6 +1256,20 @@ onUnmounted(() => {});
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  .task-meta-bar {
+    display: flex;
+    gap: 1.5em;
+    padding: 0.4em 1em;
+    background: rgba(46, 101, 255, 0.08);
+    border-bottom: 1px solid rgba(46, 101, 255, 0.2);
+    font-size: 0.85em;
+    .task-meta-label {
+      color: #2B2B2B;
+      strong {
+        color: #2e65ff;
+      }
+    }
+  }
   .tab-title {
     display: flex;
     justify-content: center;

@@ -77,8 +77,8 @@ The following environment variables can be set in the `.env` file to customize t
             - **benchmark**: Set to `SH000300`, used for backtesting evaluation.
         
         - **Data Handling**:
-            - **start_time** and **end_time**: Define the full data range, from `2008-01-01` to `2022-08-01`.
-            - **fit_start_time**: The start date for fitting the model, set to `2008-01-01`.
+            - **start_time** and **end_time**: Define the full data range, from `2010-01-04` to `2022-08-01`.
+            - **fit_start_time**: The start date for fitting the model, set to `2010-01-04`.
             - **fit_end_time**: The end date for fitting the model, set to `2014-12-31`.
             - **features and labels**: Generated via a nested data loader combining `Alpha158DL` (for engineered features such as `RESI5`, `WVMA5`, `RSQR5`, `KLEN`, etc.) and a `StaticDataLoader` that loads precomputed factor files (`combined_factors_df.parquet`).
             -  **normalization**: The pipeline includes `RobustZScoreNorm` (with clipping) and `Fillna` for inference, and `DropnaLabel` with `CSZScoreNorm` for training.
@@ -86,7 +86,7 @@ The following environment variables can be set in the `.env` file to customize t
         - **Training Configuration**:
             - **Model**: Uses `GeneralPTNN`, a PyTorch-based neural network model.
             - **Dataset Splits**:
-                - **train**: `2008-01-01` to `2014-12-31`
+                - **train**: `2010-01-04` to `2014-12-31`
                 - **valid**: `2015-01-01` to `2016-12-31`
                 - **test**: `2017-01-01` to `2020-08-01`
 

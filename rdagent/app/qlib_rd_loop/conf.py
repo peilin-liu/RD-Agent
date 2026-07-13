@@ -30,7 +30,7 @@ class ModelBasePropSetting(BasePropSetting):
     evolving_n: int = 10
     """Number of evolutions"""
 
-    train_start: str = "2008-01-01"
+    train_start: str = "2010-01-04"
     """Start date of the training segment"""
 
     train_end: str = "2014-12-31"
@@ -74,7 +74,7 @@ class FactorBasePropSetting(BasePropSetting):
     evolving_n: int = 10
     """Number of evolutions"""
 
-    train_start: str = "2008-01-01"
+    train_start: str = "2010-01-04"
     """Start date of the training segment"""
 
     train_end: str = "2014-12-31"
@@ -151,7 +151,7 @@ class QuantBasePropSetting(BasePropSetting):
     action_selection: str = "bandit"
     """Action selection strategy: 'bandit' for bandit-based selection, 'llm' for LLM-based selection, 'random' for random selection"""
 
-    train_start: str = "2008-01-01"
+    train_start: str = "2010-01-04"
     """Start date of the training segment"""
 
     train_end: str = "2014-12-31"

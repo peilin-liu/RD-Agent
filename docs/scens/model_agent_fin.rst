@@ -62,7 +62,7 @@ Here's an enhanced outline of the steps:
 | Dataset        | Model      | Factors                | Data Split                                         |
 +================+============+========================+====================================================+
 | CSI300         | RDAgent-dev| 20 factors (Alpha158)  | +-----------+--------------------------+           |
-|                |            |                        | | Train     | 2008-01-01 to 2014-12-31 |           |
+|                |            |                        | | Train     | 2010-01-04 to 2014-12-31 |           |
 |                |            |                        | +-----------+--------------------------+           |
 |                |            |                        | | Valid     | 2015-01-01 to 2016-12-31 |           |
 |                |            |                        | +-----------+--------------------------+           |
@@ -135,9 +135,9 @@ The following environment variables can be set in the `.env` file to customize t
         - **market**: Specifies the market, which is set to `csi300`.
         - **fields_group**: Defines the fields group, with the value `feature`.
         - **col_list**: A list of columns used, including various indicators such as `RESI5`, `WVMA5`, `RSQR5`, and others.
-        - **start_time**: The start date for the data, set to `2008-01-01`.
+        - **start_time**: The start date for the data, set to `2010-01-04`.
         - **end_time**: The end date for the data, set to `2020-08-01`.
-        - **fit_start_time**: The start date for fitting the model, set to `2008-01-01`.
+        - **fit_start_time**: The start date for fitting the model, set to `2010-01-04`.
         - **fit_end_time**: The end date for fitting the model, set to `2014-12-31`.
 
     - The default hyperparameters used in the configuration are as follows:

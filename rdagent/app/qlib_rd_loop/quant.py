@@ -138,12 +138,19 @@ def main(
     checkout: bool = True,
     base_features_path: str | None = None,
     region: str | None = None,
+    market: str | None = None,
     **kwargs,
 ):
     """
     Auto R&D Evolving loop for fintech factors.
     """
-    os.environ["QLIB_REGION"] = region or get_default_region()
+    resolved_region = region or get_default_region()
+    os.environ["QLIB_REGION"] = resolved_region
+    os.environ["QLIB_MARKET"] = market or ""
+    logger.info(
+        f"[task start] scenario=fin_quant region={resolved_region} market={market or '(region default)'}"
+    )
+    logger.log_object({"region": resolved_region, "market": market or ""}, tag="task.meta")
 
     if path is None:
         quant_loop = QuantRDLoop(QUANT_PROP_SETTING)

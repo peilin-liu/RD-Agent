@@ -398,6 +398,7 @@ def upload_file():
     loop_n = request.form.get("loops")
     all_duration = request.form.get("all_duration")
     region = request.form.get("region")
+    market = request.form.get("market")
 
     # scenario = "Data Science Loop"
     if scenario == "Data Science":
@@ -438,6 +439,7 @@ def upload_file():
             "all_duration": all_duration_val,
             "base_features_path": str(trace_files_path),
             "region": region,
+            "market": market,
         }
     if scenario == "Finance Model Implementation":
         target_name = "fin_model"
@@ -446,6 +448,7 @@ def upload_file():
             "all_duration": all_duration_val,
             "base_features_path": str(trace_files_path),
             "region": region,
+            "market": market,
         }
     if scenario == "Finance Whole Pipeline":
         target_name = "fin_quant"
@@ -454,6 +457,7 @@ def upload_file():
             "all_duration": all_duration_val,
             "base_features_path": str(trace_files_path),
             "region": region,
+            "market": market,
         }
     if scenario == "Finance Data Building (Reports)":
         target_name = "fin_factor_report"
@@ -473,6 +477,10 @@ def upload_file():
         return jsonify({"error": "Unknown scenario"}), 400
 
     app.logger.info(f"Started process for {log_trace_path} with target: {target_name}, kwargs: {kwargs}")
+    if market:
+        app.logger.warning(f"[upload] scenario={scenario} region={region} market={market}")
+    else:
+        app.logger.warning(f"[upload] scenario={scenario} region={region} market=(not set, will use region default)")
     task = RDAgentTask(
         target_name=target_name,
         kwargs=kwargs,
@@ -788,6 +796,17 @@ def get_regions():
     }), 200
 
 
+@app.route("/api/markets", methods=["GET"])
+def get_markets():
+    """Return cached market list for a region (scanned from instruments dir at startup)."""
+    from rdagent.core.region_config import get_cached_markets
+
+    region = request.args.get("region")
+    if not region:
+        return jsonify({"error": "region query param required"}), 400
+    return jsonify({"region": region, "markets": get_cached_markets(region)}), 200
+
+
 @app.route("/api/region", methods=["POST"])
 def set_region():
     """Set the default region (persists to ~/rd-agent/config.json)."""
@@ -867,8 +886,11 @@ def main(port: int = 19899):
     app.config["UI_SERVER_PORT"] = port
     _load_existing_traces(log_folder_path)
     # Preload all regions at startup
-    from rdagent.core.region_config import get_available_regions
+    from rdagent.core.region_config import get_available_regions, scan_all_regions
 
+    markets_cache = scan_all_regions()
+    for r, markets in markets_cache.items():
+        app.logger.info(f"Region {r} markets scanned: {len(markets)} markets cached")
     for r in get_available_regions():
         try:
             _get_provider(r)
