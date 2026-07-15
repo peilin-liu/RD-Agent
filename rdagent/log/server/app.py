@@ -706,6 +706,39 @@ def _get_provider(region: str) -> QlibDataProvider | None:
         return _qlib_registry[region]
 
 
+@app.route("/api/qlib/reload/<region>", methods=["POST"])
+def reload_qlib_region(region: str):
+    """Manually re-run qlib.init + reload symbols for a region.
+
+    Qlib data on disk may be updated daily; this endpoint drops the cached
+    provider and rebuilds it so subsequent queries see the latest data.
+    """
+    with _qlib_lock:
+        _qlib_registry.pop(region, None)
+        prev_err = _qlib_failed_regions.pop(region, None)
+        try:
+            _qlib_registry[region] = QlibDataProvider(region)
+        except Exception as e:
+            _qlib_failed_regions[region] = str(e)
+            import traceback as tb
+            return jsonify({
+                "status": "error",
+                "region": region,
+                "error": str(e),
+                "trace": tb.format_exc(),
+                "previous_error": prev_err,
+            }), 500
+    provider = _qlib_registry[region]
+    start, end = provider.data_range
+    app.logger.info(f"Region {region} reloaded (qlib init + symbols cached)")
+    return jsonify({
+        "status": "success",
+        "region": region,
+        "data_range": {"start": start, "end": end},
+        "symbols_count": len(provider._symbols),
+    }), 200
+
+
 @app.route("/api/symbols/<region>", methods=["GET"])
 def get_symbols(region: str):
     """Return cached symbols list for a region (loaded at startup)."""

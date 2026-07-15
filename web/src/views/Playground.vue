@@ -39,6 +39,14 @@
         <el-select v-model="currentRegion" @change="onRegionChange" size="small" style="width: 90px">
           <el-option v-for="r in regionList" :key="r" :label="r.toUpperCase()" :value="r" />
         </el-select>
+        <el-tooltip content="重新加载该 Region 的 Qlib 数据（每日数据更新后使用）" placement="bottom">
+          <el-button
+            size="small"
+            :icon="Refresh"
+            :loading="qlibReloading"
+            @click="onReloadQlib"
+          />
+        </el-tooltip>
       </div>
     </div>
     <div class="setup-content" v-show="!showPlayground">
@@ -412,7 +420,7 @@
         </div>
       </div>
       <div class="main-content" v-show="showPanel == 4">
-        <SymbolsViewer :region="currentRegion" />
+        <SymbolsViewer :region="currentRegion" :key="symbolsViewerKey" />
       </div>
     </div>
     <div class="playground-shell" v-if="showPlayground">
@@ -429,7 +437,8 @@
 <script setup>
 import { computed, ref, watch, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
-import { getHistoryTraceIds, uploadFile, getRegions, getMarkets, setRegion, getScenarioInfo, getDataRange } from "../utils/api";
+import { Refresh } from "@element-plus/icons-vue";
+import { getHistoryTraceIds, uploadFile, getRegions, getMarkets, setRegion, getScenarioInfo, getDataRange, reloadQlib } from "../utils/api";
 import selectComponent from "../components/select-component.vue";
 import smSelectComponent from "../components/sm-select-component.vue";
 import SymbolsViewer from "../components/SymbolsViewer.vue";
@@ -821,6 +830,32 @@ function onRegionChange(val) {
     }
   });
   refreshDataDescriptions();
+}
+
+const qlibReloading = ref(false);
+const symbolsViewerKey = ref(0);
+async function onReloadQlib() {
+  if (!currentRegion.value) return;
+  if (qlibReloading.value) return;
+  qlibReloading.value = true;
+  try {
+    const res = await reloadQlib(currentRegion.value);
+    if (res && res.status === "success") {
+      const dr = res.data_range || {};
+      ElMessage.success(
+        `Region ${currentRegion.value.toUpperCase()} 已重新加载 (数据范围: ${dr.start || "?"} ~ ${dr.end || "?"}, 标的 ${res.symbols_count ?? 0})`
+      );
+      await refreshMarkets(currentRegion.value);
+      await refreshDataDescriptions();
+      symbolsViewerKey.value += 1;
+    } else {
+      throw new Error(res?.error || "reload failed");
+    }
+  } catch (e) {
+    ElMessage.error(`重新加载 Qlib 数据失败: ${e?.message || e}`);
+  } finally {
+    qlibReloading.value = false;
+  }
 }
 
 function openDataExplorer() {
@@ -1272,6 +1307,10 @@ onMounted(() => {
 	      .region-label {
 	        font-size: 0.875em;
 	        color: #868ca5;
+	      }
+	      .el-button {
+	        margin-left: 2px;
+	        padding: 7px 8px;
 	      }
 	    }
   }

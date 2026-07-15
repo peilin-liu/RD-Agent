@@ -28,4 +28,12 @@ declare module '@/utils/api' {
   }
   export function getScenarioInfo(): Promise<{ factor: ScenarioDataSplit; model: ScenarioDataSplit; quant: ScenarioDataSplit }>;
   export function getDataRange(): Promise<{ regions: Record<string, { start: string; end: string; error?: string }> }>;
+  export function reloadQlib(region: string): Promise<{
+    status: string;
+    region: string;
+    data_range: { start: string; end: string };
+    symbols_count: number;
+    error?: string;
+    trace?: string;
+  }>;
 }

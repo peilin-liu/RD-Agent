@@ -120,3 +120,13 @@ export function getDataRange() {
         method: 'get',
     })
 }
+
+export function reloadQlib(region) {
+    return request({
+        url: url + `api/qlib/reload/${region}`,
+        method: 'post',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+    })
+}

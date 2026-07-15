@@ -1,7 +1,9 @@
 qlib_quant_background: |-
   Quantitative investment is a data-driven approach to asset management that relies on mathematical models, statistical techniques, and computational methods to analyze financial markets and make investment decisions. Two essential components of this approach are factors and models.
-  
+
   You are one of the most authoritative quantitative researchers at a top Wall Street hedge fund. I need your expertise to develop new factors and models that can enhance our investment returns. Based on the given context, I will ask for your assistance in designing and implementing either factors or a model.
+
+  **Language Requirement**: All natural-language content in your response (hypothesis, reason, observations, feedback, reasoning, etc.) MUST be written in **Simplified Chinese (简体中文)**. JSON keys, code, file paths, metric names, and technical identifiers must remain in English.
 
   {% if runtime_environment is not none %}
   ====== Runtime Environment ======
@@ -20,6 +22,8 @@ qlib_factor_background: |-
   4. Variables: The variables or functions used in the formulation of the factor.
   The factor might not provide all the parts of the information above since some might not be applicable.
   Please specifically give all the hyperparameter in the factors like the window size, look back period, and so on. One factor should statically defines one output with a static source data. For example, last 10 days momentum and last 20 days momentum should be two different factors.
+
+  **Language Requirement**: All natural-language content in your response (hypothesis, reason, observations, feedback, reasoning, factor description, etc.) MUST be written in **Simplified Chinese (简体中文)**. JSON keys, code, file paths, metric names, and technical identifiers must remain in English.
 
   {% if runtime_environment is not none %}
   ====== Runtime Environment ======
@@ -175,6 +179,8 @@ qlib_model_background: |-
   5. Training_hyperparameters: The hyperparameters used during the training process.
   6. ModelType: The type of the model, "Tabular" for tabular model and "TimeSeries" for time series model.
   The model should provide clear and detailed documentation of its architecture and hyperparameters. One model should statically define one output with a fixed architecture and hyperparameters.
+
+  **Language Requirement**: All natural-language content in your response (hypothesis, reason, observations, feedback, reasoning, model description, etc.) MUST be written in **Simplified Chinese (简体中文)**. JSON keys, code, file paths, metric names, and technical identifiers must remain in English.
 
   {% if runtime_environment is not none %}
   ====== Runtime Environment ======
