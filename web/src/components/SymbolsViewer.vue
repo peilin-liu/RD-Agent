@@ -10,7 +10,9 @@
         @change="onSymbolChange"
         style="width:240px"
       />
-      <el-date-picker v-model="dateRange" type="daterange" range-separator="~" start-placeholder="Start" end-placeholder="End" value-format="YYYY-MM-DD" @change="onDateChange" style="margin-left:12px" />
+      <el-date-picker v-model="startDate" type="date" placeholder="Start" value-format="YYYY-MM-DD" @change="onDateChange" style="margin-left:12px;width:150px" />
+      <span style="margin:0 6px">~</span>
+      <el-date-picker v-model="endDate" type="date" placeholder="End" value-format="YYYY-MM-DD" @change="onDateChange" style="width:150px" />
       <el-checkbox v-model="adjust" @change="onAdjustChange" style="margin-left:12px">Adjusted prices</el-checkbox>
       <el-button type="primary" @click="fetchData" :loading="dataLoading" style="margin-left:12px">Load</el-button>
       <span v-if="errorMsg" class="error-msg">{{ errorMsg }}</span>
@@ -35,10 +37,8 @@ const symbolOptions = computed(() =>
 );
 const symbolsLoading = ref(false);
 const selectedSymbol = ref("");
-const dateRange = ref<[string, string] | null>([
-  new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10),
-  new Date().toISOString().slice(0, 10),
-]);
+const startDate = ref<string | null>(new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10));
+const endDate = ref<string | null>(new Date().toISOString().slice(0, 10));
 const dataLoading = ref(false);
 const errorMsg = ref("");
 const adjust = ref(false);
@@ -87,8 +87,8 @@ async function fetchData() {
   errorMsg.value = "";
   dataLoading.value = true;
   try {
-    const start = dateRange.value?.[0] || "2024-01-01";
-    const end = dateRange.value?.[1] || "2024-12-31";
+    const start = startDate.value || "2024-01-01";
+    const end = endDate.value || "2024-12-31";
     const res = await getOHLCV(props.region, [selectedSymbol.value], [], start, end, adjust.value);
     if (!res.columns || !res.data) { errorMsg.value = "Invalid response from server"; return; }
     const rows = res.data.map((row: any[]) => Object.fromEntries(res.columns.map((c: string, i: number) => [c, row[i]])));
