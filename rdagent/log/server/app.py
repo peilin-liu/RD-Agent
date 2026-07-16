@@ -609,7 +609,8 @@ class QlibDataProvider:
         self.region = region
         self.provider_uri = ri.qlib_data_path
         self.symbols_path = ri.symbols_path
-        self.fields = ri.fields if ri.fields else ["$open", "$close", "$high", "$low", "$volume"]
+        self.ohlcv_fields = ri.ohlcv_fields if ri.ohlcv_fields else ["$open", "$close", "$high", "$low"]
+        self.tech_fields = ri.tech_fields if ri.tech_fields else ["$volume"]
         self._symbols: list[dict] = []
         self._verify_data_dir()
         self._init_qlib()
@@ -754,7 +755,8 @@ def get_ohlcv(region: str):
     """
     Query OHLCV data for a list of instruments over a time range.
     Body: { "instruments": ["000001.SZ"], "start": "2024-01-01", "end": "2024-12-31", "fields": ["$open","$close"] }
-    If fields is empty, all available fields are discovered automatically.
+    If fields is empty, all configured fields (ohlcv_fields + tech_fields) are queried
+    and the response includes ohlcv_fields/tech_fields classification for the frontend.
     """
     data = request.get_json(silent=True) or {}
     instruments = data.get("instruments", [])
@@ -771,18 +773,22 @@ def get_ohlcv(region: str):
             err = _qlib_failed_regions.get(region, "unknown error")
             return jsonify({"error": f"Region '{region}' failed to load: {err}"}), 503
         if not fields:
-            fields = provider.fields
+            fields = provider.ohlcv_fields + provider.tech_fields
         adjust = bool(data.get("adjust", False))
 
         df = provider.query(instruments, fields, start, end)
         if df.empty:
             return jsonify({"data": []})
         df = df.reset_index()
-        # Drop suspended days: volume == 0 or key price fields are all NaN
-        if "$volume" in df.columns:
-            df = df[df["$volume"].fillna(0) > 0]
-        if "$close" in df.columns:
-            df = df[df["$close"].notna()]
+        # Drop suspended days: close NaN or volume == 0.
+        # Resolve close column by position (4th ohlcv field) so expression
+        # fields like "$close/$factor" work; volume by name match in tech_fields.
+        close_field = provider.ohlcv_fields[3] if len(provider.ohlcv_fields) >= 4 else "$close"
+        if close_field in df.columns:
+            df = df[df[close_field].notna()]
+        vol_field = next((f for f in provider.tech_fields if "volume" in f), None)
+        if vol_field and vol_field in df.columns:
+            df = df[df[vol_field].fillna(0) > 0]
         if df.empty:
             return jsonify({"data": []})
         df = df.reset_index(drop=True)
@@ -807,6 +813,8 @@ def get_ohlcv(region: str):
         result = {
             "columns": df.columns.tolist(),
             "data": [[_clean(v) for v in row] for row in df.values.tolist()],
+            "ohlcv_fields": provider.ohlcv_fields,
+            "tech_fields": provider.tech_fields,
         }
         return jsonify(result)
     except Exception as e:

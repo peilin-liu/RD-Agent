@@ -6,7 +6,13 @@ Format:
 
 {
   "regions": {
-    "cn": {"qlib_data_path": "/path/to/cn/", "market": "csi300", "benchmark": "SH000300"},
+    "cn": {
+      "qlib_data_path": "/path/to/cn/",
+      "market": "csi300",
+      "benchmark": "SH000300",
+      "ohlcv_fields": ["$open", "$high", "$low", "$close", "$adjclose", "$factor"],
+      "tech_fields": ["$volume", "$turnover", "$amount", "$change"]
+    },
     "hk": {"qlib_data_path": "/path/to/hk/", "market": "hsi", "benchmark": "HSI"},
     "us": {"qlib_data_path": "/path/to/us/", "market": "sp500", "benchmark": "SPX"}
   },
@@ -39,7 +45,8 @@ class RegionInfo:
     market: str
     benchmark: str
     symbols_path: str = "/data/qlib_data/symbols"
-    fields: list[str] = field(default_factory=lambda: ["$open", "$close", "$high", "$low", "$volume"])
+    ohlcv_fields: list[str] = field(default_factory=lambda: ["$open", "$close", "$high", "$low"])
+    tech_fields: list[str] = field(default_factory=lambda: ["$volume"])
 
 
 def _load_config() -> dict:
@@ -75,12 +82,14 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
 
     if region in regions:
         ri = regions[region]
+        legacy_fields = ri.get("fields")
         return RegionInfo(
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
             benchmark=ri["benchmark"],
             symbols_path=_resolve_path(ri.get("symbols_path", "/data/qlib_data/symbols")),
-            fields=ri.get("fields", []),
+            ohlcv_fields=ri.get("ohlcv_fields", legacy_fields or ["$open", "$close", "$high", "$low"]),
+            tech_fields=ri.get("tech_fields", []),
         )
 
     if region in _DEFAULT_REGIONS:
@@ -90,7 +99,8 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             market=ri["market"],
             benchmark=ri["benchmark"],
             symbols_path="/data/qlib_data/symbols",
-            fields=[],
+            ohlcv_fields=["$open", "$close", "$high", "$low"],
+            tech_fields=["$volume"],
         )
 
     raise KeyError(f"Unknown region: {region}. Available: {get_available_regions()}")

@@ -17,7 +17,7 @@ declare module '@/utils/api' {
     start: string,
     end: string,
     adjust?: boolean
-  ): Promise<{ columns: string[]; data: any[][] }>;
+  ): Promise<{ columns: string[]; data: any[][]; ohlcv_fields?: string[]; tech_fields?: string[]; error?: string }>;
   export interface ScenarioDataSplit {
     train_start: string;
     train_end: string;
