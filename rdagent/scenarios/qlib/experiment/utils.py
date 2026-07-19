@@ -39,6 +39,11 @@ def generate_data_folder_from_qlib():
         Path(__file__).parent / "factor_data_template" / "README.md",
         Path(FACTOR_COSTEER_SETTINGS.data_folder) / "README.md",
     )
+    # PIT data is optional (only debug sample). Copy when present so the LLM
+    # can see PIT columns in the data folder intro.
+    _pit_src = Path(__file__).parent / "factor_data_template" / "daily_pit_debug.h5"
+    if _pit_src.exists():
+        shutil.copy(_pit_src, Path(FACTOR_COSTEER_SETTINGS.data_folder) / "daily_pit_debug.h5")
 
     Path(FACTOR_COSTEER_SETTINGS.data_folder_debug).mkdir(parents=True, exist_ok=True)
     shutil.copy(
@@ -49,6 +54,8 @@ def generate_data_folder_from_qlib():
         Path(__file__).parent / "factor_data_template" / "README.md",
         Path(FACTOR_COSTEER_SETTINGS.data_folder_debug) / "README.md",
     )
+    if _pit_src.exists():
+        shutil.copy(_pit_src, Path(FACTOR_COSTEER_SETTINGS.data_folder_debug) / "daily_pit_debug.h5")
 
 
 def get_file_desc(p: Path, variable_list=[]) -> str:

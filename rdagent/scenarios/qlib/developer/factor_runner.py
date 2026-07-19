@@ -81,6 +81,15 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             f"[qlib market] region={region} configured_market={ri.market} "
             f"override={os.environ.get('QLIB_MARKET') or ''} -> using market={market}"
         )
+
+        # Seed base_features with PIT financial factors declared in
+        # ~/.rd-agent/config.json (regions[region].pit_factors). When
+        # inject_pit_factors is true and the experiment has no LLM-proposed
+        # features yet, the configured PE/PB/ROE/... factors are injected so
+        # the runner uses point-in-time financials alongside market daily data.
+        if ri.inject_pit_factors and ri.pit_factors and not exp.base_features:
+            exp.base_features = dict(ri.pit_factors)
+            logger.info(f"[qlib pit] injected {len(ri.pit_factors)} PIT factors into base_features")
         env_to_use = {
             "PYTHONPATH": "./",
             "train_start": fbps.train_start,

@@ -185,6 +185,77 @@ ALPHA158 = {
     "VSUMD60": "(Sum(Greater($volume-Ref($volume, 1), 0), 60)-Sum(Greater(Ref($volume, 1)-$volume, 0), 60))/(Sum(Abs($volume-Ref($volume, 1)), 60)+1e-12)",
 }
 
+# Point-in-Time (PIT) financial fields available on disk under
+# `{provider_uri}/financial/{instrument}/{field}.{data,index}`. This is the
+# data schema (what fields exist), NOT the factor definitions — derived
+# factors like PE/PB/ROE are configured in ~/.rd-agent/config.json
+# (regions[region].pit_factors) so users can edit them without code changes.
+# Queried via the `P($$field)` operator (qlib.data.pit.P) which collapses
+# <period, feature> data onto each trading day using the latest revision
+# known at that day (no look-ahead). Field names must end with `_q` (quarterly)
+# or `_a` (annual).
+PIT_RAW_FIELDS = [
+    "eps_q",                 # 每股收益(累计)
+    "eps_single_q",          # 单季每股收益
+    "bvps_q",                # 每股净资产
+    "fcf_q",                 # 每股自由现金流
+    "roe_q",                 # 净资产收益率 ROE
+    "gross_margin_q",        # 毛利率
+    "net_margin_q",          # 净利率
+    "operating_margin_q",    # 营业利润率
+    "nim_q",                 # 净利息率(银行/非银)
+    "debt_ratio_q",          # 资产负债率
+    "goodwill_ratio_q",      # 商誉占总资产比
+    "ocf_to_np_q",           # 经营现金流/净利润(现金流质量)
+    "capex_to_revenue_q",    # 资本支出/营收
+    "revenue_growth_yoy_q",  # 营收同比增速
+    "net_income_growth_yoy_q",  # 净利润同比增速
+    "eps_growth_yoy_q",      # EPS同比增速
+    "ocf_growth_yoy_q",      # 经营现金流同比增速
+]
+
+# =============================================================================
+# SAMPLE ONLY — DO NOT use this dict at runtime.
+#
+# The factor runner reads factor definitions from ~/.rd-agent/config.json
+# (regions[region].pit_factors). This dict is just a reference template showing
+# how to build valuation/momentum factors. Copy/edit it into config.json as
+# needed. It is intentionally NOT imported by factor_runner or any runtime path.
+#
+# Two flavours are shown:
+#   (A) tushare market-daily dump — valuation ratios are precomputed daily
+#       fields, so just reference them directly. No P(...) operator, no
+#       financial/ directory needed. This is the default/recommended setup.
+#   (B) PIT financial dump — if you have {qlib_data_path}/financial/, build
+#       PE-TTM from single-quarter EPS via P(Sum($$eps_single_q,4)). Set
+#       inject_pit_factors=true in that case.
+# Pick ONE flavour per region; do not mix.
+# =============================================================================
+PIT_FACTORS = {
+    # --- (A) tushare market-daily: precomputed valuation fields (recommended) ---
+    "PE": "$pe_ttm",                # 市盈率TTM
+    "PB": "$pb",                    # 市净率
+    "PS": "$ps_ttm",                # 市销率TTM
+    "DV_TTM": "$dv_ttm",            # 股息率TTM
+    "DV_RATIO": "$dv_ratio",        # 股息率(宣告)
+    "EARNINGS_YIELD": "1/($pe_ttm+1e-12)",   # 盈利收益率 = 1/PE
+    "BOOK_YIELD": "1/($pb+1e-12)",          # 账面收益率 = 1/PB
+    "PE_MA60": "Mean($pe_ttm, 60)",
+    "PB_MA60": "Mean($pb, 60)",
+    "PE_MA120": "Mean($pe_ttm, 120)",
+    "PB_MA120": "Mean($pb, 120)",
+    "PE_DELTA": "$pe_ttm-Ref($pe_ttm, 60)",
+    "PB_DELTA": "$pb-Ref($pb, 60)",
+    "PS_DELTA": "$ps_ttm-Ref($ps_ttm, 60)",
+    "DV_DELTA": "$dv_ttm-Ref($dv_ttm, 60)",
+    # --- (B) PIT financial dump alternative (only if financial/ exists) ---
+    # "PE": "($close/$factor)/(P(Sum($$eps_single_q,4))+1e-12)",  # PE-TTM
+    # "PB": "($close/$factor)/(P($$bvps_q)+1e-12)",
+    # "PCF": "($close/$factor)/(P($$fcf_q)+1e-12)",
+    # "ROE": "P($$roe_q)",
+    # "PEG": "(($close/$factor)/(P(Sum($$eps_single_q,4))+1e-12))/(P($$eps_growth_yoy_q)+1e-12)",
+}
+
 _TFW = FBWorkspace()  # test feature workspace
 TEST_FEATURE_CODE = """
 import qlib  

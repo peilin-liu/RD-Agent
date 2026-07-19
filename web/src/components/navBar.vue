@@ -25,8 +25,8 @@ export default {
 </script>
 <style scoped lang="scss">
 .header-component {
-  padding: 1.75em 4.375em 0;
-  height: 5.15em;
+  padding: 1em 3em 0;
+  height: 3.6em;
   box-sizing: border-box;
   & > .nav {
     display: flex;
@@ -35,10 +35,10 @@ export default {
     align-items: center;
     flex-direction: row;
     .logo-container {
-      margin-right: 4.375em;
+      margin-right: 2.5em;
       img {
         display: inline-block;
-        height: 2.25em;
+        height: 1.6em;
       }
     }
     ul {
@@ -51,9 +51,9 @@ export default {
         a {
           display: inline-block;
           color: var(--nav-default-color);
-          font-size: 1.25em;
+          font-size: 1em;
           font-weight: 700;
-          line-height: 200%;
+          line-height: 170%;
           &:hover {
             color: var(--nav-hover-color);
           }

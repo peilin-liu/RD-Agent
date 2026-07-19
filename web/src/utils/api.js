@@ -96,14 +96,14 @@ export function getSymbols(region) {
     })
 }
 
-export function getOHLCV(region, instruments, fields, start, end, adjust) {
+export function getOHLCV(region, instruments, fields, start, end, adjust, pitFields) {
     return request({
         url: url + `api/ohlcv/${region}`,
         method: 'post',
         headers: {
             'Content-Type': 'application/json'
         },
-        data: { instruments, fields, start, end, adjust },
+        data: { instruments, fields, start, end, adjust, pit_fields: pitFields || [] },
     })
 }
 

@@ -1240,11 +1240,14 @@ onMounted(() => {
   overflow: hidden;
   .nav-bar {
     padding: 1.05em 1.8em;
+    padding: 0.45em 1.4em;
     box-sizing: border-box;
     position: fixed;
     z-index: 100;
     top: 1.2em;
+    top: 0.55em;
     right: 2.4em;
+    right: 2em;
     display: flex;
     gap: 0.67em;
     flex-wrap: nowrap;
@@ -1257,7 +1260,9 @@ onMounted(() => {
     box-shadow: 0 12px 32px rgba(17, 24, 39, 0.08);
     span {
       font-size: 1.125em;
+      font-size: 0.9em;
       line-height: 200%;
+      line-height: 150%;
       color: #868ca5;
       cursor: pointer;
       &.active {
@@ -1276,8 +1281,10 @@ onMounted(() => {
       max-width: 18em;
       cursor: default;
       font-size: 1.125em;
+      font-size: 0.9em;
       font-weight: 700;
       line-height: 200%;
+      line-height: 150%;
       text-shadow: 8px 11px 30px var(--wg-shadow-color);
       background: linear-gradient(90deg, #2667ff 0%, #9d41ff 100%);
       background-clip: text;
@@ -1336,7 +1343,7 @@ onMounted(() => {
   box-sizing: border-box;
   padding: 4em 0 5em;
   padding: 3.6em 0 4.5em;
-  padding: 3.6em 0 0;
+  padding: 1.2em 0 0;
   &.split-two {
     display: flex;
     justify-content: space-around;
@@ -1466,8 +1473,10 @@ onMounted(() => {
     text-align: center;
     font-size: 2.5em;
     font-size: 2.25em;
+    font-size: 1.6em;
     font-weight: 700;
     line-height: 200%;
+    line-height: 150%;
   }
   .h1 {
     line-height: 120%;
@@ -1479,20 +1488,25 @@ onMounted(() => {
     justify-content: center;
     margin-top: 4em;
     margin-top: 3.6em;
+    margin-top: 1.8em;
     padding-bottom: 7em;
     padding-bottom: 6.3em;
+    padding-bottom: 3em;
     gap: 6em;
     gap: 5.4em;
+    gap: 3.2em;
 
     .card-item {
       display: flex;
       padding: 2.5em 4.875em 0px 4.875em;
       padding: 2.25em 4.3875em 0 4.3875em;
+      padding: 1.4em 2.6em 0 2.6em;
       flex-direction: column;
       justify-content: flex-end;
       align-items: center;
       gap: 0.875em;
       gap: 0.7875em;
+      gap: 0.6em;
       background: var(--bg-white);
       cursor: pointer;
 
@@ -1505,6 +1519,7 @@ onMounted(() => {
         font-family: "Microsoft YaHei";
         font-size: 2em;
         font-size: 1.8em;
+        font-size: 1.35em;
         font-weight: 700;
         background: linear-gradient(90deg, #4c5cff 0%, #794dff 100%);
         background-clip: text;
@@ -1513,6 +1528,7 @@ onMounted(() => {
       }
       p {
         width: 18em;
+        width: 14em;
         height: 2.42em;
         height: 2.178em;
         color: var(--text-color);
@@ -1520,15 +1536,18 @@ onMounted(() => {
         text-shadow: 8px 11px 30px var(--wg-shadow-color);
         font-size: 1.5em;
         font-size: 1.35em;
+        font-size: 1.05em;
         font-style: normal;
         font-weight: 700;
         line-height: 120%;
         margin: 0.89em 0 0.5em;
         margin: 0.8em 0 0.45em;
+        margin: 0.5em 0 0.3em;
       }
       img {
         height: 20em;
         height: 18em;
+        height: 11em;
         transition: transform 0.5s ease; /* 平滑的过渡效果 */
         transform-origin: center 0%;
       }
@@ -1539,10 +1558,12 @@ onMounted(() => {
         background: var(--card-bg-hover-color);
         .img1 {
           transform: scale(1.3);
+          transform: scale(1.18);
           transform-origin: center 0%;
         }
         .img2 {
           transform: scale(1.3) rotate(-10deg);
+          transform: scale(1.18) rotate(-10deg);
           transform-origin: center center;
         }
       }

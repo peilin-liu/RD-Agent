@@ -10,14 +10,67 @@ Format:
       "qlib_data_path": "/path/to/cn/",
       "market": "csi300",
       "benchmark": "SH000300",
-      "ohlcv_fields": ["$open", "$high", "$low", "$close", "$adjclose", "$factor"],
-      "tech_fields": ["$volume", "$turnover", "$amount", "$change"]
+      "ohlcv_fields": {
+        "open": "$open/$factor",
+        "high": "$high/$factor",
+        "low": "$low/$factor",
+        "close": "$close/$factor"
+      },
+      "tech_fields": {
+        "volume": "$volume",
+        "amount": "$amount",
+        "turnover": "$turnover",
+        "change": "$change",
+        "turnover_rate_f": "$turnover_rate_f",
+        "volume_ratio": "$volume_ratio",
+        "dividends": "$dividends",
+        "total_mv": "$total_mv",
+        "circ_mv": "$circ_mv"
+      },
+      "inject_pit_factors": false,
+      "pit_factors": {
+        "PE": "$pe_ttm",
+        "PB": "$pb",
+        "PS": "$ps_ttm",
+        "DV_TTM": "$dv_ttm",
+        "DV_RATIO": "$dv_ratio",
+        "EARNINGS_YIELD": "1/($pe_ttm+1e-12)",
+        "BOOK_YIELD": "1/($pb+1e-12)",
+        "PE_MA60": "Mean($pe_ttm, 60)",
+        "PB_MA60": "Mean($pb, 60)",
+        "PE_MA120": "Mean($pe_ttm, 120)",
+        "PB_MA120": "Mean($pb, 120)"
+      },
+      "pit_overlay_fields": ["PE_MA60", "PB_MA60", "PE_MA120", "PB_MA120"]
     },
     "hk": {"qlib_data_path": "/path/to/hk/", "market": "hsi", "benchmark": "HSI"},
     "us": {"qlib_data_path": "/path/to/us/", "market": "sp500", "benchmark": "SPX"}
   },
   "default_region": "cn"
 }
+
+`ohlcv_fields` / `tech_fields` map a display name (key) to a Qlib expression
+(value). The backend queries by value and returns columns renamed to the key,
+so the frontend shows clean names. List form ["$open", ...] is still accepted
+as legacy (key = expression without the leading "$").
+
+`pit_factors` (optional): map of factor name → Qlib expression. Despite the
+legacy name, these need NOT use PIT financial data — they are regular Qlib
+expressions over any field in `{qlib_data_path}/features/`. With a tushare
+market-daily dump the valuation ratios come precomputed as daily fields
+(`$pe_ttm`, `$pb`, `$ps_ttm`, `$dv_ttm`, ...), so just reference them directly:
+`"PE": "$pe_ttm"`. If you DO have a PIT financial database under
+`{qlib_data_path}/financial/`, use the `P($$field)` operator to collapse
+point-in-time data (e.g. `P(Sum($$eps_single_q,4))` for TTM EPS). Set
+`inject_pit_factors: true` only when expressions contain `P(...)`; otherwise
+leave it `false`. When true, these factors are seeded into every factor
+experiment's `base_features` so the runner uses them alongside market daily
+data. Define PE/PB/PS etc. here — do NOT hardcode them in source.
+
+`pit_overlay_fields` (optional): subset of `pit_factors` keys to overlay on
+the K-line chart in the data-explorer UI (right-side secondary axis, e.g.
+smoothed PE_MA60/PB_MA60). Factors NOT in this list render in the lower
+indicator panel. Keys must exist in `pit_factors`.
 """
 
 import json
@@ -38,6 +91,23 @@ _DEFAULT_REGIONS = {
 
 _DEFAULT_REGION = "cn"
 
+_DEFAULT_OHLCV = {"open": "$open", "high": "$high", "low": "$low", "close": "$close"}
+_DEFAULT_TECH = {"volume": "$volume"}
+
+
+def _normalize_fields(v) -> dict:
+    """Accept dict {display: expr} or legacy list of exprs; return dict {display: expr}."""
+    if isinstance(v, dict):
+        return {str(k): str(val) for k, val in v.items()}
+    if isinstance(v, list):
+        out: dict = {}
+        for expr in v:
+            expr = str(expr)
+            key = expr[1:] if expr.startswith("$") else expr
+            out[key] = expr
+        return out
+    return {}
+
 
 @dataclass
 class RegionInfo:
@@ -45,8 +115,11 @@ class RegionInfo:
     market: str
     benchmark: str
     symbols_path: str = "/data/qlib_data/symbols"
-    ohlcv_fields: list[str] = field(default_factory=lambda: ["$open", "$close", "$high", "$low"])
-    tech_fields: list[str] = field(default_factory=lambda: ["$volume"])
+    ohlcv_fields: dict = field(default_factory=lambda: dict(_DEFAULT_OHLCV))
+    tech_fields: dict = field(default_factory=lambda: dict(_DEFAULT_TECH))
+    inject_pit_factors: bool = False
+    pit_factors: dict = field(default_factory=dict)
+    pit_overlay_fields: list = field(default_factory=list)
 
 
 def _load_config() -> dict:
@@ -83,13 +156,25 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
     if region in regions:
         ri = regions[region]
         legacy_fields = ri.get("fields")
+        ohlcv = _normalize_fields(ri.get("ohlcv_fields", legacy_fields if legacy_fields is not None else None))
+        if not ohlcv:
+            ohlcv = dict(_DEFAULT_OHLCV)
+        tech = _normalize_fields(ri.get("tech_fields"))
+        if not tech:
+            tech = dict(_DEFAULT_TECH)
+        pit_factors = _normalize_fields(ri.get("pit_factors"))
+        inject_pit = bool(ri.get("inject_pit_factors", False))
+        pit_overlay = [str(k) for k in ri.get("pit_overlay_fields", []) if str(k) in pit_factors]
         return RegionInfo(
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
             benchmark=ri["benchmark"],
             symbols_path=_resolve_path(ri.get("symbols_path", "/data/qlib_data/symbols")),
-            ohlcv_fields=ri.get("ohlcv_fields", legacy_fields or ["$open", "$close", "$high", "$low"]),
-            tech_fields=ri.get("tech_fields", []),
+            ohlcv_fields=ohlcv,
+            tech_fields=tech,
+            inject_pit_factors=inject_pit,
+            pit_factors=pit_factors,
+            pit_overlay_fields=pit_overlay,
         )
 
     if region in _DEFAULT_REGIONS:
@@ -99,8 +184,8 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             market=ri["market"],
             benchmark=ri["benchmark"],
             symbols_path="/data/qlib_data/symbols",
-            ohlcv_fields=["$open", "$close", "$high", "$low"],
-            tech_fields=["$volume"],
+            ohlcv_fields=dict(_DEFAULT_OHLCV),
+            tech_fields=dict(_DEFAULT_TECH),
         )
 
     raise KeyError(f"Unknown region: {region}. Available: {get_available_regions()}")

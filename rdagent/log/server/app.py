@@ -609,8 +609,10 @@ class QlibDataProvider:
         self.region = region
         self.provider_uri = ri.qlib_data_path
         self.symbols_path = ri.symbols_path
-        self.ohlcv_fields = ri.ohlcv_fields if ri.ohlcv_fields else ["$open", "$close", "$high", "$low"]
-        self.tech_fields = ri.tech_fields if ri.tech_fields else ["$volume"]
+        self.ohlcv_fields = ri.ohlcv_fields if ri.ohlcv_fields else {"open": "$open", "high": "$high", "low": "$low", "close": "$close"}
+        self.tech_fields = ri.tech_fields if ri.tech_fields else {"volume": "$volume"}
+        self.pit_factors = ri.pit_factors if ri.pit_factors else {}
+        self.pit_overlay_fields = ri.pit_overlay_fields if ri.pit_overlay_fields else []
         self._symbols: list[dict] = []
         self._verify_data_dir()
         self._init_qlib()
@@ -639,8 +641,12 @@ class QlibDataProvider:
         import qlib
         from qlib.data import D
 
+        # Use a STRING provider_uri (not a dict) so qlib sets __DEFAULT_FREQ,
+        # which LocalPITProvider relies on to resolve the `financial/` subdir
+        # for point-in-time queries. expression_cache=None keeps behavior
+        # consistent with the previous init.
         qlib.init(
-            provider_uri={"day": self.provider_uri},
+            provider_uri=self.provider_uri,
             expression_cache=None,
         )
         self.D = D
@@ -754,15 +760,24 @@ def get_symbols(region: str):
 def get_ohlcv(region: str):
     """
     Query OHLCV data for a list of instruments over a time range.
-    Body: { "instruments": ["000001.SZ"], "start": "2024-01-01", "end": "2024-12-31", "fields": ["$open","$close"] }
-    If fields is empty, all configured fields (ohlcv_fields + tech_fields) are queried
-    and the response includes ohlcv_fields/tech_fields classification for the frontend.
+    Body: {
+      "instruments": ["000001.SZ"],
+      "start": "2024-01-01", "end": "2024-12-31",
+      "fields": ["$open","$close"],            # optional; empty = ohlcv+tech defaults
+      "pit_fields": ["PE","PB","PE_MA60"]       # optional; PIT display keys to fetch
+    }
+    ohlcv_fields + tech_fields are always queried when `fields` is empty.
+    `pit_fields` (point-in-time financial factors) are queried ONLY when
+    requested, because the P($$field) operator is not vectorized and slow.
+    Columns are renamed from Qlib expression to display key. Response includes
+    ohlcv_fields/tech_fields/pit_factors/pit_overlay_fields display keys.
     """
     data = request.get_json(silent=True) or {}
     instruments = data.get("instruments", [])
     start = data.get("start", "2024-01-01")
     end = data.get("end", "2024-12-31")
     fields = data.get("fields", [])
+    pit_keys = data.get("pit_fields", [])
 
     if not instruments:
         return jsonify({"error": "Missing instruments"}), 400
@@ -773,22 +788,33 @@ def get_ohlcv(region: str):
             err = _qlib_failed_regions.get(region, "unknown error")
             return jsonify({"error": f"Region '{region}' failed to load: {err}"}), 503
         if not fields:
-            fields = provider.ohlcv_fields + provider.tech_fields
+            fields = list(provider.ohlcv_fields.values()) + list(provider.tech_fields.values())
+        # PIT factors are opt-in per request (slow P() operator). Map requested
+        # display keys to their Qlib expressions via pit_factors.
+        pit_exprs: list[str] = []
+        for k in pit_keys:
+            expr = provider.pit_factors.get(k)
+            if expr and expr not in fields:
+                pit_exprs.append(expr)
+        all_fields = fields + pit_exprs
         adjust = bool(data.get("adjust", False))
 
-        df = provider.query(instruments, fields, start, end)
+        df = provider.query(instruments, all_fields, start, end)
         if df.empty:
             return jsonify({"data": []})
         df = df.reset_index()
-        # Drop suspended days: close NaN or volume == 0.
-        # Resolve close column by position (4th ohlcv field) so expression
-        # fields like "$close/$factor" work; volume by name match in tech_fields.
-        close_field = provider.ohlcv_fields[3] if len(provider.ohlcv_fields) >= 4 else "$close"
-        if close_field in df.columns:
-            df = df[df[close_field].notna()]
-        vol_field = next((f for f in provider.tech_fields if "volume" in f), None)
-        if vol_field and vol_field in df.columns:
-            df = df[df[vol_field].fillna(0) > 0]
+        # Rename expression columns to display keys (ohlcv + tech + pit).
+        rename_map = {}
+        for key, expr in {**provider.ohlcv_fields, **provider.tech_fields, **provider.pit_factors}.items():
+            if expr in df.columns:
+                rename_map[expr] = key
+        if rename_map:
+            df = df.rename(columns=rename_map)
+        # Drop suspended days: close NaN or volume == 0 (use display keys).
+        if "close" in df.columns:
+            df = df[df["close"].notna()]
+        if "volume" in df.columns:
+            df = df[df["volume"].fillna(0) > 0]
         if df.empty:
             return jsonify({"data": []})
         df = df.reset_index(drop=True)
@@ -796,12 +822,12 @@ def get_ohlcv(region: str):
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         # Adjusted prices: if requested, replace raw OHLC with adjusted values
-        if adjust and "$adjclose" in df.columns and "$close" in df.columns:
-            adj_ratio = df["$adjclose"] / df["$close"]
-            for raw_field in ["$open", "$high", "$low"]:
+        if adjust and "adjclose" in df.columns and "close" in df.columns:
+            adj_ratio = df["adjclose"] / df["close"]
+            for raw_field in ["open", "high", "low"]:
                 if raw_field in df.columns:
                     df[raw_field] = df[raw_field] * adj_ratio
-            df["$close"] = df["$adjclose"]
+            df["close"] = df["adjclose"]
         # Manually convert NaN to None so jsonify produces valid JSON (null)
         def _clean(v):
             try:
@@ -813,8 +839,10 @@ def get_ohlcv(region: str):
         result = {
             "columns": df.columns.tolist(),
             "data": [[_clean(v) for v in row] for row in df.values.tolist()],
-            "ohlcv_fields": provider.ohlcv_fields,
-            "tech_fields": provider.tech_fields,
+            "ohlcv_fields": list(provider.ohlcv_fields.keys()),
+            "tech_fields": list(provider.tech_fields.keys()),
+            "pit_factors": list(provider.pit_factors.keys()),
+            "pit_overlay_fields": list(provider.pit_overlay_fields),
         }
         return jsonify(result)
     except Exception as e:
