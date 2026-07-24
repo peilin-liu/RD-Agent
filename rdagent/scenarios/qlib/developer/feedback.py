@@ -134,15 +134,17 @@ class QlibModelExperiment2Feedback(Experiment2Feedback):
         hypothesis = exp.hypothesis
         logger.info("Generating feedback...")
 
-        # Generate the system prompt
+        # Generate the system prompt. Always use the MODEL feedback prompt so the
+        # LLM is asked for the "Decision" field this class actually reads below.
+        # (QlibQuantScenario needs action="model" to describe the model part;
+        # QlibModelScenario is already model-only and does not accept the arg.)
         if isinstance(self.scen, QlibQuantScenario):
-            sys_prompt = T("scenarios.qlib.prompts:model_feedback_generation.system").r(
-                scenario=self.scen.get_scenario_all_desc(action="model")
-            )
+            scenario_desc = self.scen.get_scenario_all_desc(action="model")
         else:
-            sys_prompt = T("scenarios.qlib.prompts:factor_feedback_generation.system").r(
-                scenario=self.scen.get_scenario_all_desc()
-            )
+            scenario_desc = self.scen.get_scenario_all_desc()
+        sys_prompt = T("scenarios.qlib.prompts:model_feedback_generation.system").r(
+            scenario=scenario_desc
+        )
 
         # Generate the user prompt
         SOTA_hypothesis, SOTA_experiment = trace.get_sota_hypothesis_and_experiment()
