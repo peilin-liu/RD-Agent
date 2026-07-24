@@ -1,6 +1,7 @@
 <template>
   <div class="symbols-viewer">
-    <div class="controls-row">
+    <div class="controls-row" v-if="viewMode === 'single'">
+      <el-button type="success" plain @click="switchToMarket" size="small">市场行情</el-button>
       <el-select-v2
         v-model="selectedSymbol"
         :options="symbolOptions"
@@ -8,7 +9,7 @@
         placeholder="Search symbol..."
         :loading="symbolsLoading"
         @change="onSymbolChange"
-        style="width:240px"
+        style="width:240px; margin-left:12px"
       />
       <el-date-picker v-model="startDate" type="date" placeholder="Start" value-format="YYYY-MM-DD" @change="onDateChange" style="margin-left:12px;width:150px" />
       <span style="margin:0 6px">~</span>
@@ -19,6 +20,18 @@
       <span v-if="errorMsg" class="error-msg">{{ errorMsg }}</span>
     </div>
 
+    <!-- Market snapshot view -->
+    <MarketSnapshot
+      v-if="viewMode === 'market'"
+      ref="marketSnapRef"
+      :region="props.region"
+      :latestDate="latestTradingDate"
+      @select-symbol="onSnapshotSelectSymbol"
+      @back="viewMode = 'single'"
+    />
+
+    <!-- Single-symbol K-line view -->
+    <template v-else>
     <div class="indicator-tags" v-if="rawData.length">
       <span class="row-label">MA</span>
       <el-tag
@@ -58,22 +71,57 @@
       >{{ f }}{{ pitOverlayFields.includes(f) ? ' ⓘ' : '' }}</el-tag>
       <span class="row-empty">ⓘ = overlay on K-line; others in indicator panel</span>
     </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
-import { getSymbols, getOHLCV } from "@/utils/api";
+import { getSymbols, getOHLCV, getDataRange } from "@/utils/api";
 import * as echarts from "echarts";
+import MarketSnapshot from "./MarketSnapshot.vue";
 
 const props = defineProps<{ region: string }>();
+
+// View mode: 'single' (K-line) or 'market' (snapshot table). Lives in the URL
+// query (?view=market|single) so a refresh keeps the view and the URL is
+// shareable. Default 'market' (the data-explorer landing view).
+import { useRoute, useRouter } from "vue-router";
+const route = useRoute();
+const router = useRouter();
+const VIEW_Q = "view";
+const initialView = (route.query[VIEW_Q] as "single" | "market") || "market";
+const viewMode = ref<"single" | "market">(
+  initialView === "single" ? "single" : "market"
+);
+watch(viewMode, (v) => {
+  router.replace({ query: { ...route.query, [VIEW_Q]: v } });
+});
+const marketSnapRef = ref<any>(null);
+// Latest trading day, passed to MarketSnapshot so it defaults the date picker.
+const latestTradingDate = ref<string>("");
+function switchToMarket() {
+  viewMode.value = "market";
+  // MarketSnapshot fetches on mount; if already mounted (toggling), refetch.
+  nextTick(() => marketSnapRef.value?.fetchData?.());
+}
+function onSnapshotSelectSymbol(sym: string) {
+  selectedSymbol.value = sym;
+  viewMode.value = "single";
+  nextTick(() => fetchData());
+}
 
 const symbols = ref<Array<{ symbol: string; name: string; listing_date?: string }>>([]);
 const symbolOptions = computed(() =>
   symbols.value.map(s => ({ label: `${s.symbol}  ${s.name}`, value: s.symbol }))
 );
 const symbolsLoading = ref(false);
-const selectedSymbol = ref("");
+// Selected symbol lives in URL (?symbol=000538.SZ) so refresh keeps it and
+// deep links work. Auto-loads on mount if present.
+const selectedSymbol = ref<string>((route.query.symbol as string) || "");
+watch(selectedSymbol, (v) => {
+  router.replace({ query: { ...route.query, symbol: v || undefined } });
+});
 const startDate = ref<string | null>(new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10));
 const endDate = ref<string | null>(new Date().toISOString().slice(0, 10));
 const dataLoading = ref(false);
@@ -136,11 +184,25 @@ const userStart = ref<string>("");
 const chartDom = ref<HTMLElement | null>(null);
 let chartInstance: echarts.ECharts | null = null;
 
-onMounted(() => {
+onMounted(async () => {
   loadSymbols();
+  loadLatestDate();
   window.addEventListener("resize", resizeChart);
   chartDom.value?.addEventListener("wheel", onChartWheel, { passive: false });
+  // If the URL carries a symbol and we're in single-symbol view, auto-load it
+  // (e.g. clicked through from the market snapshot, or a shared deep link).
+  if (selectedSymbol.value && viewMode.value === "single") {
+    await nextTick();
+    fetchData();
+  }
 });
+async function loadLatestDate() {
+  try {
+    const res: any = await getDataRange();
+    const cn = res?.regions?.cn || res?.[props.region];
+    latestTradingDate.value = cn?.end || res?.end || "";
+  } catch (e) { /* non-fatal */ }
+}
 onBeforeUnmount(() => {
   window.removeEventListener("resize", resizeChart);
   chartDom.value?.removeEventListener("wheel", onChartWheel);

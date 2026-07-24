@@ -112,7 +112,9 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
                     qlib_config_name="conf_sota_factors_model.yaml", run_env=env_to_use
                 )
             else:
-                env_to_use.update({"dataset_cls": "TSDatasetH", "step_len": 20, "num_timesteps": 20})
+                env_to_use.update(
+                    {"dataset_cls": "TSDatasetH", "num_features": str(len(exp.base_features)), "step_len": 20, "num_timesteps": 20}
+                )
                 result, stdout = exp.experiment_workspace.execute(
                     qlib_config_name="conf_baseline_factors_model.yaml", run_env=env_to_use
                 )
@@ -123,7 +125,7 @@ class QlibModelRunner(CachedRunner[QlibModelExperiment]):
                     qlib_config_name="conf_sota_factors_model.yaml", run_env=env_to_use
                 )
             else:
-                env_to_use.update({"dataset_cls": "DatasetH"})
+                env_to_use.update({"dataset_cls": "DatasetH", "num_features": str(len(exp.base_features))})
                 result, stdout = exp.experiment_workspace.execute(
                     qlib_config_name="conf_baseline_factors_model.yaml", run_env=env_to_use
                 )

@@ -115,6 +115,7 @@ class RegionInfo:
     market: str
     benchmark: str
     symbols_path: str = "/data/qlib_data/symbols"
+    industry_csv_path: str = ""  # e.g. /data/qlib_data/standard_csv/industry_reference/cn/symbol_industry.csv
     ohlcv_fields: dict = field(default_factory=lambda: dict(_DEFAULT_OHLCV))
     tech_fields: dict = field(default_factory=lambda: dict(_DEFAULT_TECH))
     inject_pit_factors: bool = False
@@ -170,6 +171,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             market=ri["market"],
             benchmark=ri["benchmark"],
             symbols_path=_resolve_path(ri.get("symbols_path", "/data/qlib_data/symbols")),
+            industry_csv_path=_resolve_path(ri.get("industry_csv_path", "")) if ri.get("industry_csv_path") else "",
             ohlcv_fields=ohlcv,
             tech_fields=tech,
             inject_pit_factors=inject_pit,

@@ -445,12 +445,19 @@ import SymbolsViewer from "../components/SymbolsViewer.vue";
 import loadingSvg from "../components/loading-dot.vue";
 import markdown from "../components/markdown.vue";
 import { defineAsyncComponent } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { kaggleCompetitions } from "../constants/mle-competitions";
 const playgroundPage = defineAsyncComponent(() => import("./PlaygroundPage.vue"));
 const router = useRouter();
+const route = useRoute();
 const completedTraceStorageKey = "completedTraceIdList";
-const showPanel = ref(1);
+// Panel state lives in the URL query (?panel=4) so refresh keeps the view and
+// the URL is shareable/bookmarkable. Falls back to 1 (start) when absent.
+const showPanel = ref(Number(route.query.panel) || 1);
+watch(showPanel, (v) => {
+  // Replace (not push) so we don't pollute browser history on each panel swap.
+  router.replace({ query: { ...route.query, panel: String(v) } });
+});
 const showPlayground = ref(false);
 const uploaDone = ref(false);
 const loading = ref(false);
@@ -1225,8 +1232,37 @@ function moveSlider(index) {
   lines.style.left = `${12 * index + 0.75 * (2 * index + 1)}em`; // 更新下划线位置
 }
 
-onMounted(() => {
-  void buildHistoryTraceList();
+onMounted(async () => {
+  await buildHistoryTraceList();
+
+  // Support auto-view of a specific trace after a delete (or via shareable URL).
+  // Query params: selection=<trace_id>&auto_view=1 — auto-select that trace
+  // and open its detail page without extra clicks.
+  const selectionParam = String(route.query.selection || "").trim();
+  const autoView = String(route.query.auto_view || "") === "1";
+  if (selectionParam) {
+    const separatorIndex = selectionParam.indexOf("/");
+    const scenarioNameFromTrace =
+      separatorIndex === -1 ? "" : selectionParam.slice(0, separatorIndex);
+    const scenarioIndex = historyScenarioList.value.findIndex(
+      (s) => s.name === scenarioNameFromTrace
+    );
+    if (scenarioIndex >= 0) {
+      const scenario = historyScenarioList.value[scenarioIndex];
+      const traceList = Array.isArray(scenario.children) ? scenario.children : [];
+      const traceIndex = traceList.findIndex((t) => t.id === selectionParam);
+      if (traceIndex >= 0) {
+        historyScenarioChecked.value = scenario;
+        historyScenarioCheckedIndex.value = scenarioIndex;
+        historyTraceList.value = traceList;
+        historyTraceCheckedIndex.value = traceIndex;
+        historyTraceChecked.value = traceList[traceIndex];
+        if (autoView) {
+          viewTracePage();
+        }
+      }
+    }
+  }
 });
 </script>
 

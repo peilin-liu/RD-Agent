@@ -32,6 +32,13 @@ from rdagent.log.utils import (
 )
 from rdagent.oai.backend.litellm import LITELLM_SETTINGS
 from rdagent.oai.llm_utils import APIBackend
+from rdagent.app.utils.workspace import (
+    WORKSPACE_ARTIFACT_SIZE_LIMIT,
+    collect_artifacts_for_workspace,
+    execute_deletion,
+    human_readable_bytes,
+    plan_deletion,
+)
 
 # Import necessary classes for the response format
 from rdagent.scenarios.data_science.proposal.exp_gen.proposal import (
@@ -239,8 +246,76 @@ def workspace_win(workspace, cmp_workspace=None, cmp_name="last code."):
                             save_path.parent.mkdir(parents=True, exist_ok=True)
                             save_path.write_text(content, encoding="utf-8")
                         st.success(f"All files saved to: {target_folder}")
+
+            _render_model_artifacts(workspace.workspace_path)
     else:
-        st.markdown(f"No files in :blue[{replace_ep_path(workspace.workspace_path)}]")
+        # No code files; still try to show mlruns artifacts if present.
+        if not _render_model_artifacts(workspace.workspace_path):
+            st.markdown(f"No files in :blue[{replace_ep_path(workspace.workspace_path)}]")
+
+
+def _render_model_artifacts(workspace_path: Path) -> bool:
+    """Render "Model Artifacts" subsection inside a Files popover.
+
+    Returns True if the subsection was rendered (artifacts found), False if
+    nothing was rendered (so caller can show its own "No files" fallback).
+    """
+    try:
+        artifacts = collect_artifacts_for_workspace(Path(workspace_path))
+    except Exception as e:  # noqa: BLE001 - never crash the popover
+        st.error(f"Failed to scan workspace artifacts: {e}")
+        return False
+    if not artifacts:
+        return False
+
+    st.markdown("### Model Artifacts")
+    st.caption(
+        f"{len(artifacts)} file(s) under `mlruns/.../artifacts/`. "
+        "Models trained by qlib MLflow live here; download to inspect."
+    )
+
+    has_oversized = any(a.size_bytes > WORKSPACE_ARTIFACT_SIZE_LIMIT for a in artifacts)
+    if len(artifacts) >= 2 and not has_oversized:
+        if st.button("📦 Download all as zip", key=f"zip_{workspace_path}"):
+            import io
+            import zipfile
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for a in artifacts:
+                    try:
+                        zf.writestr(a.relative_path, a.absolute_path.read_bytes())
+                    except FileNotFoundError:
+                        st.error(f"File no longer exists: {a.absolute_path}")
+                        continue
+            st.download_button(
+                label="⬇️ artifacts.zip",
+                data=buf.getvalue(),
+                file_name="artifacts.zip",
+                mime="application/zip",
+                key=f"dl_zip_{workspace_path}",
+            )
+
+    for a in artifacts:
+        label = f"{a.relative_path} ({human_readable_bytes(a.size_bytes)})"
+        if a.size_bytes > WORKSPACE_ARTIFACT_SIZE_LIMIT:
+            st.markdown(
+                f"`{label}` — too large for in-browser download, "
+                f"access via filesystem: `{a.absolute_path}`"
+            )
+            continue
+        try:
+            data = a.absolute_path.read_bytes()
+        except FileNotFoundError:
+            st.error(f"File no longer exists: {a.absolute_path}")
+            continue
+        st.download_button(
+            label=f"⬇️ {label}",
+            data=data,
+            file_name=a.relative_path.rsplit("/", 1)[-1],
+            key=f"dl_{workspace_path}_{a.relative_path}",
+        )
+    return True
 
 
 # Helper functions
@@ -1118,6 +1193,88 @@ def get_folders_sorted(log_path, sort_by_time=False):
 
 # UI - Sidebar
 with st.sidebar:
+    # ---- Workspace Cleanup (capability: workspace-cleanup) ----
+    # Independent section listing all trace tasks under the currently selected
+    # log_folder, each with a per-trace Delete button. Visible on any page so
+    # the user does not have to drill into Trace > select task first.
+    st.subheader("Workspace Cleanup", divider="rainbow")
+    cleanup_log_folder = None
+    try:
+        cleanup_log_folder = Path(state.log_folder) if state.log_folder else None
+    except AttributeError:
+        cleanup_log_folder = None
+    if cleanup_log_folder is not None and cleanup_log_folder.exists():
+        cleanup_folders = sorted(
+            [f for f in cleanup_log_folder.iterdir() if is_valid_session(f)],
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+        if cleanup_folders:
+            with st.expander(f"Delete a trace task ({len(cleanup_folders)})", expanded=False):
+                st.caption(
+                    "Deleting a task also deletes its associated workspaces "
+                    "and cache entries. Shared workspaces are kept until "
+                    "the last referencer is removed."
+                )
+                for f in cleanup_folders:
+                    cols = st.columns([0.75, 0.25])
+                    cols[0].write(f.name)
+                    if cols[1].button("🗑️", key=f"cleanup_btn_{f.name}", help="Delete this task"):
+                        plan = plan_deletion(f, keep_trace=False)
+                        state["pending_delete_plan"] = plan
+                        state["pending_delete_trace_dir"] = f
+                # Render the confirmation expander if a plan is pending
+                if "pending_delete_plan" in state:
+                    plan = state["pending_delete_plan"]
+                    with st.expander(
+                        f"⚠️ Confirm delete: {state['pending_delete_trace_dir'].name}",
+                        expanded=True,
+                    ):
+                        st.write(f"**Trace directory:** `{plan.trace_dir_to_delete}`")
+                        st.write(
+                            f"**Workspaces to delete:** {len(plan.workspaces_to_delete)} "
+                            f"(total {human_readable_bytes(plan.total_bytes)})"
+                        )
+                        for p in plan.workspaces_to_delete[:5]:
+                            st.text(f"  - {p}")
+                        if len(plan.workspaces_to_delete) > 5:
+                            st.text(f"  ... and {len(plan.workspaces_to_delete) - 5} more")
+                        if plan.cross_trace_shared_kept:
+                            st.warning(
+                                f"{len(plan.cross_trace_shared_kept)} workspace(s) shared "
+                                "with other traces will be kept:"
+                            )
+                            for s in plan.cross_trace_shared_kept[:3]:
+                                st.text(
+                                    f"  - {s.uuid} (refcount={s.refcount}, "
+                                    f"also in: {', '.join(s.remaining_traces)})"
+                                )
+                        st.write(f"**Cache entries to delete:** {len(plan.cache_entries_to_delete)}")
+
+                        col1, col2 = st.columns(2)
+                        if col1.button("✅ Confirm delete", type="primary"):
+                            result = execute_deletion(plan)
+                            if result.refused:
+                                st.error(f"Refused: {result.reason}")
+                            else:
+                                st.success(
+                                    f"Deleted {len(result.deleted_workspaces)} workspaces "
+                                    f"({human_readable_bytes(result.reclaimed_bytes)}) "
+                                    f"and trace directory."
+                                )
+                            del state["pending_delete_plan"]
+                            del state["pending_delete_trace_dir"]
+                            st.rerun()
+                        if col2.button("❌ Cancel"):
+                            del state["pending_delete_plan"]
+                            del state["pending_delete_trace_dir"]
+                            st.rerun()
+        else:
+            st.caption("No trace tasks found under the selected log folder.")
+    else:
+        st.caption("Select a log folder above to list trace tasks for cleanup.")
+    st.divider()
+
     # TODO: 只是临时的功能
     if any("log.srv" in folder for folder in state.log_folders):
         day_map = {"srv": "最近(srv)", "srv2": "上一批(srv2)", "srv3": "上上批(srv3)"}

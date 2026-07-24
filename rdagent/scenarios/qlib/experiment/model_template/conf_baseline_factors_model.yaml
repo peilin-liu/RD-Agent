@@ -73,7 +73,7 @@ task:
             GPU: 0
             pt_model_uri: "model.model_cls"
             pt_model_kwargs: {
-                "num_features": 20,
+                "num_features": {{ num_features | default(20) }},
                 {% if num_timesteps %}num_timesteps: {{ num_timesteps }}{% endif %}
             }                    
     dataset:

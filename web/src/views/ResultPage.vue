@@ -108,6 +108,14 @@
                   >
                     {{ file.name }}
                   </button>
+                  <button
+                    class="download-file-btn model-files-btn"
+                    type="button"
+                    :disabled="loadingArtifacts"
+                    @click="openModelFilesModal"
+                  >
+                    {{ loadingArtifacts ? "model_files…" : "model_files" }}
+                  </button>
                 </div>
                 <span v-else>-</span>
               </template>
@@ -163,6 +171,43 @@
         </div>
       </div>
     </div>
+
+    <div
+      class="model-files-modal"
+      v-if="showModelFilesModal"
+      @click.self="closeModelFilesModal"
+    >
+      <div class="model-files-modal-content">
+        <div class="model-files-modal-header">
+          <h3>Model Files</h3>
+          <button class="model-files-close" @click="closeModelFilesModal">×</button>
+        </div>
+        <div class="model-files-modal-body">
+          <p v-if="loadingArtifacts">Loading…</p>
+          <p v-else-if="!modelArtifacts.length">No model files found for this trace.</p>
+          <p v-else-if="modelArtifactsError" class="model-files-error">{{ modelArtifactsError }}</p>
+          <ul v-else class="model-files-list">
+            <li
+              v-for="a in modelArtifacts"
+              :key="a.relative_path"
+              class="model-files-item"
+            >
+              <span class="model-files-path">{{ a.relative_path }}</span>
+              <span class="model-files-size">({{ a.size_human }})</span>
+              <a
+                v-if="a.download_url"
+                class="model-files-download"
+                :href="a.download_url"
+                :download="a.relative_path.split('/').pop()"
+              >⬇️ Download</a>
+              <span v-else class="model-files-too-large">
+                too large, access via filesystem: <code>{{ a.absolute_path }}</code>
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 <script setup>
@@ -170,7 +215,7 @@ import { ref, watch, computed, defineProps, onMounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import JSZip from "jszip";
 import chartBox from "../components/chartBox.vue";
-import { getStdoutDownloadUrl } from "../utils/api";
+import { getStdoutDownloadUrl, listTraceArtifacts } from "../utils/api";
 const props = defineProps({
   currentData: Array,
   scenarioName: String,
@@ -184,6 +229,51 @@ const traceName = ref(props.traceName);
 const tableData = ref([]);
 const switchValue = ref(false);
 const metricData = ref(null);
+
+// --- Model Files modal state (capability: model-artifact-presentation) ---
+const showModelFilesModal = ref(false);
+const loadingArtifacts = ref(false);
+const modelArtifacts = ref([]);
+const modelArtifactsError = ref("");
+
+const openModelFilesModal = async () => {
+  // Show the modal immediately with a loading state so the user sees feedback.
+  showModelFilesModal.value = true;
+  loadingArtifacts.value = true;
+  modelArtifactsError.value = "";
+  modelArtifacts.value = [];
+  const traceId = getTraceId();
+  if (!traceId) {
+    loadingArtifacts.value = false;
+    modelArtifactsError.value = "Trace ID not available.";
+    return;
+  }
+  try {
+    const data = await listTraceArtifacts(traceId);
+    // request.js returns raw `response.data` on success, full axios response
+    // (which has no `artifacts` field) on HTTP error.
+    if (data && Array.isArray(data.artifacts)) {
+      modelArtifacts.value = data.artifacts;
+    } else if (data && data.error) {
+      modelArtifactsError.value = data.error;
+    } else if (data && Array.isArray(data.data) && data.data.artifacts) {
+      // Defensive: full response shape
+      modelArtifacts.value = data.data.artifacts;
+    } else {
+      modelArtifactsError.value = "Unexpected response from server.";
+    }
+  } catch (e) {
+    modelArtifactsError.value =
+      (e && e.response && e.response.data && (e.response.data.error || JSON.stringify(e.response.data))) ||
+      (e && e.message) || String(e);
+  } finally {
+    loadingArtifacts.value = false;
+  }
+};
+
+const closeModelFilesModal = () => {
+  showModelFilesModal.value = false;
+};
 
 const getTraceId = () => {
   const scenario = scenarioName.value == null ? "" : String(scenarioName.value).trim();
@@ -872,10 +962,143 @@ watch(
           background: #e8dcff;
         }
 
+        .model-files-btn {
+          border-color: #2e65ff;
+          background: #eef3ff;
+          color: #2e65ff;
+          font-weight: 700;
+          &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+          }
+        }
+
+        .model-files-btn:hover:not(:disabled) {
+          background: #dde7ff;
+        }
+
         .base-factor-file-btn {
           border-color: #3062ff;
           background: #edf2ff;
           color: #3062ff;
+        }
+
+        .model-files-modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+
+        .model-files-modal-content {
+          background: #fff;
+          border-radius: 10px;
+          padding: 1.2em 1.6em;
+          max-width: 680px;
+          max-height: 75vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .model-files-modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid #eee;
+          padding-bottom: 0.6em;
+          margin-bottom: 0.8em;
+
+          h3 {
+            margin: 0;
+            color: #2e65ff;
+          }
+          .model-files-close {
+            background: transparent;
+            border: none;
+            font-size: 1.6em;
+            line-height: 1;
+            cursor: pointer;
+            color: #999;
+            &:hover {
+              color: #333;
+            }
+          }
+        }
+
+        .model-files-modal-body {
+          overflow-y: auto;
+          flex: 1;
+          p {
+            color: #666;
+            font-size: 0.9em;
+          }
+          .model-files-error {
+            color: #b3261e;
+          }
+        }
+
+        .model-files-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+
+          .model-files-item {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5em;
+            padding: 0.4em 0;
+            border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+            &:last-child {
+              border-bottom: none;
+            }
+
+            .model-files-path {
+              font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+              color: #2B2B2B;
+              word-break: break-all;
+              font-size: 0.85em;
+            }
+
+            .model-files-size {
+              color: #888;
+              font-size: 0.85em;
+            }
+
+            .model-files-download {
+              margin-left: auto;
+              color: #2e65ff;
+              text-decoration: none;
+              padding: 0.1em 0.6em;
+              border: 1px solid #2e65ff;
+              border-radius: 4px;
+              font-size: 0.85em;
+              &:hover {
+                background: #2e65ff;
+                color: #fff;
+              }
+            }
+
+            .model-files-too-large {
+              margin-left: auto;
+              color: #b3261e;
+              font-size: 0.8em;
+              code {
+                background: #fdecea;
+                padding: 0 0.3em;
+                border-radius: 3px;
+                font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+                word-break: break-all;
+              }
+            }
+          }
         }
 
         .base-factor-file-btn:hover {

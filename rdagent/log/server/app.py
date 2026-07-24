@@ -1,8 +1,10 @@
 import logging
 import os
 import random
+import re
 import threading
 import traceback
+from urllib.parse import quote as url_quote
 from collections import defaultdict
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
@@ -388,6 +390,240 @@ def list_traces():
     return jsonify(trace_ids), 200
 
 
+def _resolve_trace_dir(trace_id: str) -> Path | None:
+    """Resolve a trace_id to its absolute directory, safely under log_folder_path."""
+    normalized = str(trace_id or "").strip()
+    if not normalized:
+        return None
+    trace_dir = (log_folder_path / normalized).resolve()
+    try:
+        trace_dir.relative_to(log_folder_path.resolve())
+    except ValueError:
+        return None
+    if not trace_dir.exists() or not trace_dir.is_dir():
+        return None
+    return trace_dir
+
+
+def _resolve_ws_root_for_trace(trace_dir: Path) -> Path:
+    """Walk up from trace_dir to find a sibling 'RD-Agent_workspace' directory.
+
+    Falls back to the configured default when not found (so the path-whitelist
+    check in execute_deletion still has something to compare against).
+    """
+    from rdagent.core.conf import RD_AGENT_SETTINGS
+
+    candidate = trace_dir.parent
+    for _ in range(5):
+        sibling_ws = candidate / "RD-Agent_workspace"
+        if sibling_ws.exists() and sibling_ws.is_dir():
+            return sibling_ws
+        if candidate.parent == candidate:
+            break
+        candidate = candidate.parent
+    return RD_AGENT_SETTINGS.workspace_path
+
+
+@app.route("/trace/artifacts", methods=["GET"])
+def list_trace_artifacts():
+    """List mlruns model artifacts produced by the given trace.
+
+    Query: ?trace_id=Finance Model Implementation/steel-jarhead
+    Returns: {"artifacts": [{relative_path, size_bytes, size_human, workspace_uuid, download_url}, ...]}
+    """
+    from rdagent.app.utils.workspace import (
+        WORKSPACE_ARTIFACT_SIZE_LIMIT,
+        collect_artifacts_for_workspace,
+        collect_workspace_uuids_for_trace,
+        human_readable_bytes,
+    )
+
+    trace_id = request.args.get("trace_id", "").strip()
+    trace_dir = _resolve_trace_dir(trace_id)
+    if trace_dir is None:
+        return jsonify({"error": "Trace ID is required or invalid"}), 400
+
+    ws_root = _resolve_ws_root_for_trace(trace_dir)
+    uuids = collect_workspace_uuids_for_trace(trace_dir)
+
+    artifacts: list[dict] = []
+    for u in sorted(uuids):
+        ws_path = ws_root / u
+        if not ws_path.exists():
+            continue
+        for a in collect_artifacts_for_workspace(ws_path):
+            too_large = a.size_bytes > WORKSPACE_ARTIFACT_SIZE_LIMIT
+            artifacts.append(
+                {
+                    "relative_path": a.relative_path,
+                    "size_bytes": a.size_bytes,
+                    "size_human": human_readable_bytes(a.size_bytes),
+                    "workspace_uuid": u,
+                    "absolute_path": str(a.absolute_path),
+                    "too_large": too_large,
+                    "download_url": (
+                        None
+                        if too_large
+                        else (
+                            f"/trace/artifact/download?"
+                            f"trace_id={url_quote(trace_id, safe='')}"
+                            f"&uuid={u}&path={url_quote(a.relative_path, safe='')}"
+                        )
+                    ),
+                }
+            )
+    return jsonify({"artifacts": artifacts, "count": len(artifacts)}), 200
+
+
+@app.route("/trace/artifact/download", methods=["GET"])
+def download_trace_artifact():
+    """Download a single mlruns artifact file produced by the given trace.
+
+    Query: ?trace_id=...&uuid=<32hex>&path=<exp>/<rec>/<relative_path>
+    """
+    trace_id = request.args.get("trace_id", "").strip()
+    uuid = request.args.get("uuid", "").strip()
+    rel_path = request.args.get("path", "").strip()
+
+    if not trace_id or not uuid or not rel_path:
+        return jsonify({"error": "trace_id, uuid and path are required"}), 400
+
+    trace_dir = _resolve_trace_dir(trace_id)
+    if trace_dir is None:
+        return jsonify({"error": "Trace not found"}), 404
+
+    # Validate uuid shape (32 hex) to prevent path traversal.
+    if not re.fullmatch(r"[a-f0-9]{32}", uuid):
+        return jsonify({"error": "Invalid uuid"}), 400
+
+    ws_root = _resolve_ws_root_for_trace(trace_dir)
+    ws_path = ws_root / uuid
+    try:
+        ws_path.resolve().relative_to(ws_root.resolve())
+    except ValueError:
+        return jsonify({"error": "workspace path escapes workspace root"}), 400
+    if not ws_path.exists() or not ws_path.is_dir():
+        return jsonify({"error": "workspace not found"}), 404
+
+    # rel_path is <exp>/<rec>/<...>/<filename>; artifacts live under
+    # <ws>/mlruns/<exp>/<rec>/artifacts/<...>. Reconstruct the absolute path.
+    parts = rel_path.split("/")
+    if len(parts) < 3:
+        return jsonify({"error": "Invalid artifact path"}), 400
+    exp, rec, rest = parts[0], parts[1], parts[2:]
+    abs_path = ws_path / "mlruns" / exp / rec / "artifacts"
+    for segment in rest:
+        # Reject absolute, parent, and empty segments.
+        if segment in ("", ".", "..") or "/" in segment:
+            return jsonify({"error": "Invalid artifact path"}), 400
+        abs_path = abs_path / segment
+    try:
+        abs_path.resolve().relative_to((ws_path / "mlruns").resolve())
+    except ValueError:
+        return jsonify({"error": "artifact path escapes mlruns"}), 400
+    if not abs_path.exists() or not abs_path.is_file():
+        return jsonify({"error": "Artifact file not found"}), 404
+
+    return send_file(
+        abs_path,
+        as_attachment=True,
+        download_name=abs_path.name,
+        mimetype="application/octet-stream",
+    )
+
+
+@app.route("/trace/delete", methods=["POST"])
+def delete_trace():
+    """Delete a trace task together with its associated workspaces and cache.
+
+    Request JSON body:
+      {"trace_id": "Finance Whole Pipeline/tart-parapet", "execute": true}
+
+    Safety:
+    - Default (no "execute" or false) returns a dry-run plan without touching the filesystem.
+    - "execute": true performs the actual deletion.
+    - Active-trace protection: refuses to delete a trace whose files were modified
+      within the last hour (pipeline may still be running).
+    - Reference counting: workspaces shared with other traces are kept until the
+      current trace is their last referencer.
+    """
+    data = request.get_json(silent=True) or {}
+    trace_id = str(data.get("trace_id", "")).strip()
+    do_execute = bool(data.get("execute", False))
+
+    if not trace_id:
+        return jsonify({"error": "trace_id is required"}), 400
+
+    trace_dir = _resolve_trace_dir(trace_id)
+    if trace_dir is None:
+        return jsonify({"error": f"trace not found: {trace_id}"}), 404
+
+    from rdagent.app.utils.workspace import (
+        execute_deletion,
+        human_readable_bytes,
+        plan_deletion,
+    )
+    from rdagent.core.conf import RD_AGENT_SETTINGS
+
+    derived_ws_root = _resolve_ws_root_for_trace(trace_dir)
+    original_ws_path = RD_AGENT_SETTINGS.workspace_path
+    try:
+        RD_AGENT_SETTINGS.workspace_path = derived_ws_root
+        plan = plan_deletion(trace_dir, keep_trace=False)
+    finally:
+        RD_AGENT_SETTINGS.workspace_path = original_ws_path
+
+    plan_summary = {
+        "trace_id": trace_id,
+        "workspaces_to_delete": [str(p) for p in plan.workspaces_to_delete],
+        "workspace_count": len(plan.workspaces_to_delete),
+        "cross_trace_shared_kept": [
+            {
+                "uuid": s.uuid,
+                "refcount": s.refcount,
+                "remaining_traces": s.remaining_traces,
+            }
+            for s in plan.cross_trace_shared_kept
+        ],
+        "cache_entries_to_delete": len(plan.cache_entries_to_delete),
+        "skipped_invalid_paths": [str(p) for p in plan.skipped_invalid_paths],
+        "total_bytes": plan.total_bytes,
+        "total_bytes_human": human_readable_bytes(plan.total_bytes),
+    }
+
+    if not do_execute:
+        return jsonify({"dry_run": True, "plan": plan_summary}), 200
+
+    original_ws_path_2 = RD_AGENT_SETTINGS.workspace_path
+    try:
+        RD_AGENT_SETTINGS.workspace_path = _resolve_ws_root_for_trace(trace_dir)
+        result = execute_deletion(plan)
+    finally:
+        RD_AGENT_SETTINGS.workspace_path = original_ws_path_2
+    return jsonify(
+        {
+            "dry_run": False,
+            "refused": result.refused,
+            "reason": result.reason,
+            "deleted_workspaces": [str(p) for p in result.deleted_workspaces],
+            "deleted_workspace_count": len(result.deleted_workspaces),
+            "deleted_cache_entries": len(result.deleted_cache_entries),
+            "trace_dir_deleted": result.trace_dir_deleted,
+            "cross_trace_shared_kept": [
+                {
+                    "uuid": s.uuid,
+                    "refcount": s.refcount,
+                    "remaining_traces": s.remaining_traces,
+                }
+                for s in result.cross_trace_shared_kept
+            ],
+            "skipped_invalid_paths": [str(p) for p in result.skipped_invalid_paths],
+            "reclaimed_bytes": result.reclaimed_bytes,
+            "reclaimed_bytes_human": human_readable_bytes(result.reclaimed_bytes),
+        }
+    ), 200
+
+
 @app.route("/upload", methods=["POST"])
 def upload_file():
     # 获取请求体中的字段
@@ -601,6 +837,18 @@ _qlib_failed_regions: dict[str, str] = {}
 _qlib_lock = threading.Lock()
 
 
+def _num(v) -> float | None:
+    """Coerce a numpy/pandas scalar to a Python float, None if NaN/missing."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    import math
+    return None if math.isnan(f) else f
+
+
 class QlibDataProvider:
     def __init__(self, region: str):
         from rdagent.core.region_config import get_region_config
@@ -672,6 +920,148 @@ class QlibDataProvider:
             self._symbols = pd.read_csv(csv_path).to_dict(orient="records")
         else:
             self._symbols = []
+        # Load symbol metadata (name + industry) into an in-memory dict so the
+        # market-snapshot / symbol dropdown can join without re-reading CSVs.
+        # Layered: instruments/*.txt for symbol lists (read on demand),
+        # symbols csv for names, industry csv for industry_code/industry_name.
+        self._symbols_meta: dict[str, dict] = {}
+        self._load_symbols_meta()
+
+    def _load_symbols_meta(self) -> None:
+        """Build symbol -> {name, industry_code, industry_name, listing_date}.
+
+        Sources:
+          - {symbols_path}/{region}_symbols.csv  -> name, listing_date
+          - {industry_csv_path}                  -> industry_code, industry_name
+        Missing files are tolerated (fields left empty). Called once at init.
+        """
+        meta: dict[str, dict] = {}
+        # 1. names from symbols csv
+        if self._symbols:
+            for row in self._symbols:
+                sym = row.get("symbol")
+                if not sym:
+                    continue
+                meta[sym] = {
+                    "name": row.get("name") or "",
+                    "listing_date": row.get("listing_date") or "",
+                    "industry_code": "",
+                    "industry_name": "",
+                }
+        # 2. industry from industry csv (overrides empty industry fields)
+        from rdagent.core.region_config import get_region_config
+        try:
+            ri = get_region_config(self.region)
+            ind_path = ri.industry_csv_path
+        except Exception:
+            ind_path = ""
+        if ind_path and Path(ind_path).is_file():
+            try:
+                ind_df = pd.read_csv(ind_path)
+                # Keep the latest revision per symbol (max effective_date).
+                ind_df = ind_df.sort_values("effective_date").drop_duplicates("symbol", keep="last")
+                for _, r in ind_df.iterrows():
+                    sym = r.get("symbol")
+                    if not sym:
+                        continue
+                    entry = meta.setdefault(sym, {"name": "", "listing_date": "", "industry_code": "", "industry_name": ""})
+                    entry["industry_code"] = str(r.get("industry_code") or "")
+                    entry["industry_name"] = str(r.get("industry_name") or "")
+            except Exception as e:
+                app.logger.warning(f"Failed to load industry csv {ind_path}: {e}")
+        self._symbols_meta = meta
+
+    def _read_instruments(self, market: str) -> list[dict]:
+        """Read {qlib_data_path}/instruments/{market}.txt, return active symbols.
+
+        Format: symbol\tstart_date\tend_date (tab-separated). Drops symbols whose
+        end_date precedes the calendar's last trading day (delisted/inactive).
+        """
+        inst_path = Path(self.provider_uri) / "instruments" / f"{market}.txt"
+        if not inst_path.is_file():
+            return []
+        _, last_date = self.data_range
+        rows: list[dict] = []
+        with open(inst_path, encoding="utf-8") as f:
+            for ln in f:
+                parts = ln.strip().split("\t")
+                if len(parts) < 1 or not parts[0]:
+                    continue
+                sym = parts[0]
+                start = parts[1] if len(parts) > 1 else ""
+                end = parts[2] if len(parts) > 2 else ""
+                if last_date and end and end < last_date:
+                    continue  # delisted before latest trading day
+                meta = self._symbols_meta.get(sym, {})
+                rows.append({
+                    "symbol": sym,
+                    "name": meta.get("name", ""),
+                    "listing_date": meta.get("listing_date", "") or start,
+                    "industry_code": meta.get("industry_code", ""),
+                    "industry_name": meta.get("industry_name", ""),
+                })
+        return rows
+
+    # Snapshot columns shown in the market-snapshot table. Keys are display
+    # aliases; expressions are resolved from config ohlcv_fields/tech_fields at
+    # runtime — never hardcoded here. Missing aliases are skipped.
+    SNAPSHOT_ALIASES = [
+        "open", "close", "high", "low", "pct_chg",
+        "volume", "amount", "turnover",
+        "PE", "PB", "DV_RATIO", "DV_TTM",
+    ]
+
+    def market_snapshot(self, market: str, date: str) -> list[dict]:
+        """Latest-day (or given date) snapshot for all symbols in a market.
+
+        Resolves each alias's Qlib expression from config ohlcv_fields/tech_fields,
+        batch-queries D.features for all instruments on `date`, then joins with
+        _symbols_meta (name/industry). Unit conversions live in config expressions.
+        """
+        inst = self._read_instruments(market)
+        if not inst:
+            return []
+        symbols = [r["symbol"] for r in inst]
+        # Build {alias: expr} from config. ohlcv_fields takes precedence, then tech_fields.
+        cfg = {**self.ohlcv_fields, **self.tech_fields}
+        alias_to_expr: dict[str, str] = {}
+        for alias in self.SNAPSHOT_ALIASES:
+            expr = cfg.get(alias)
+            if expr:
+                alias_to_expr[alias] = expr
+        if not alias_to_expr:
+            return []
+        exprs = list(alias_to_expr.values())
+        df = self.query(symbols, exprs, date, date)
+        if df.empty:
+            return []
+        # df index: (date, instrument). Slice to given date and reset.
+        try:
+            df = df.xs(date, level=0) if date in df.index.get_level_values(0) else df
+        except KeyError:
+            pass
+        df = df.reset_index() if df.index.names and "instrument" in (df.index.names or []) else df
+        # Rename each qlib expression column back to its display alias.
+        col_map = {expr: alias for alias, expr in alias_to_expr.items()}
+        df = df.rename(columns=col_map)
+        # Build per-symbol rows
+        meta_by_sym = {r["symbol"]: r for r in inst}
+        out: list[dict] = []
+        for _, r in df.iterrows():
+            sym = r.get("instrument")
+            if not sym:
+                continue
+            meta = meta_by_sym.get(sym, {})
+            row: dict = {
+                "symbol": sym,
+                "name": meta.get("name", ""),
+                "industry_code": meta.get("industry_code", ""),
+                "industry_name": meta.get("industry_name", ""),
+            }
+            for alias in alias_to_expr:
+                row[alias] = _num(r.get(alias))
+            out.append(row)
+        return out
 
     def _parse_date(self, s: str) -> str:
         return pd.Timestamp(s).strftime("%Y-%m-%d")
@@ -817,6 +1207,12 @@ def get_ohlcv(region: str):
             df = df[df["volume"].fillna(0) > 0]
         if df.empty:
             return jsonify({"data": []})
+        # Loss-making stocks: tushare returns NaN for PE/PE_TTM (earnings ≤ 0).
+        # Sentinel 99999 so the loss is visible instead of a silent null line.
+        # Applies to PE-style columns only (PB/PS stay as-is).
+        for col in ("PE", "PE_MA60", "PE_MA120"):
+            if col in df.columns:
+                df[col] = df[col].fillna(99999)
         df = df.reset_index(drop=True)
         # Ensure date column is plain string for JSON serialization
         if "date" in df.columns:
@@ -874,6 +1270,47 @@ def get_markets():
     if not region:
         return jsonify({"error": "region query param required"}), 400
     return jsonify({"region": region, "markets": get_cached_markets(region)}), 200
+
+
+@app.route("/api/instruments/<region>", methods=["GET"])
+def get_instruments(region: str):
+    """Return active symbols for a market classification.
+
+    Query: ?market=csi300  -> reads instruments/csi300.txt, drops delisted, joins
+    symbols_meta for name/industry. Default market = the region's configured market.
+    """
+    market = request.args.get("market") or "all"
+    provider = _get_provider(region)
+    if provider is None:
+        return jsonify({"error": f"Region '{region}' not loaded"}), 503
+    rows = provider._read_instruments(market)
+    return jsonify({"region": region, "market": market, "instruments": rows}), 200
+
+
+@app.route("/api/market_snapshot/<region>", methods=["GET"])
+def get_market_snapshot(region: str):
+    """Latest-day (or given date) snapshot for all symbols in a market.
+
+    Query: ?market=csi300&date=2026-07-17
+    Returns OHLC + pct_chg + turnover_rate_f + volume + amount + name + industry,
+    joined with symbols_meta. Used by the Market Snapshot table view.
+    """
+    market = request.args.get("market") or "all"
+    provider = _get_provider(region)
+    if provider is None:
+        return jsonify({"error": f"Region '{region}' not loaded"}), 503
+    date = request.args.get("date")
+    if not date:
+        _, date = provider.data_range
+    try:
+        rows = provider.market_snapshot(market, date)
+    except Exception as e:
+        import traceback as tb
+        return jsonify({"error": str(e), "trace": tb.format_exc()}), 500
+    return jsonify({
+        "region": region, "market": market, "date": date,
+        "symbols_count": len(rows), "data": rows,
+    }), 200
 
 
 @app.route("/api/region", methods=["POST"])

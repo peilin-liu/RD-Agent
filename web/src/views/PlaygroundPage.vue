@@ -19,6 +19,84 @@
           <span class="task-meta-label" v-if="taskMeta.region">Region: <strong>{{ taskMeta.region }}</strong></span>
           <span class="task-meta-label" v-if="taskMeta.market">Market: <strong>{{ taskMeta.market }}</strong></span>
         </div>
+        <div class="trace-actions-bar">
+          <button
+            class="trace-action-btn delete-btn"
+            :disabled="deletingTrace"
+            @click="onDeleteTraceClick"
+          >
+            <span v-if="!deletingTrace">🗑️ Delete this trace & workspace</span>
+            <span v-else>Working…</span>
+          </button>
+        </div>
+
+        <div
+          class="delete-confirm-modal"
+          v-if="deletePlan || deleteError || deleteSuccess"
+        >
+          <div class="delete-modal-content">
+            <h3 v-if="deleteSuccess">✅ Deleted</h3>
+            <h3 v-else-if="deleteError">❌ Error</h3>
+            <h3 v-else>⚠️ Confirm delete: {{ traceName }}</h3>
+
+            <div v-if="deleteSuccess" class="delete-summary">
+              <p>Deleted {{ deleteSuccess.deleted_workspace_count }} workspace(s)
+                ({{ deleteSuccess.reclaimed_bytes_human }}) and trace directory.</p>
+              <p v-if="deleteSuccess.cross_trace_shared_kept.length">
+                {{ deleteSuccess.cross_trace_shared_kept.length }} workspace(s) shared
+                with other traces were kept.
+              </p>
+              <p class="info-text">Loading next trace…</p>
+            </div>
+
+            <div v-else-if="deleteError" class="delete-summary">
+              <pre>{{ deleteError }}</pre>
+              <button class="delete-modal-btn" @click="closeDeleteModal">Close</button>
+            </div>
+
+            <div v-else class="delete-summary">
+              <p><strong>Trace:</strong> {{ deletePlan.trace_id }}</p>
+              <p><strong>Workspaces to delete:</strong>
+                {{ deletePlan.workspace_count }}
+                (total {{ deletePlan.total_bytes_human }})
+              </p>
+              <ul class="workspace-path-list">
+                <li v-for="p in deletePlan.workspaces_to_delete.slice(0, 5)" :key="p">{{ p }}</li>
+                <li v-if="deletePlan.workspaces_to_delete.length > 5">
+                  ... and {{ deletePlan.workspaces_to_delete.length - 5 }} more
+                </li>
+              </ul>
+              <p v-if="deletePlan.cross_trace_shared_kept.length" class="warn-text">
+                {{ deletePlan.cross_trace_shared_kept.length }} workspace(s) shared
+                with other traces will be kept:
+              </p>
+              <ul
+                v-if="deletePlan.cross_trace_shared_kept.length"
+                class="workspace-path-list"
+              >
+                <li v-for="s in deletePlan.cross_trace_shared_kept" :key="s.uuid">
+                  {{ s.uuid }} (refcount={{ s.refcount }},
+                  also in: {{ s.remaining_traces.join(", ") }})
+                </li>
+              </ul>
+              <p><strong>Cache entries to delete:</strong> {{ deletePlan.cache_entries_to_delete }}</p>
+              <p v-if="deletePlan.skipped_invalid_paths.length" class="warn-text">
+                {{ deletePlan.skipped_invalid_paths.length }} invalid path(s) will be skipped.
+              </p>
+              <div class="delete-modal-actions">
+                <button
+                  class="delete-modal-btn primary"
+                  :disabled="deletingTrace"
+                  @click="onConfirmDelete"
+                >
+                  <span v-if="!deletingTrace">✅ Confirm delete</span>
+                  <span v-else>Deleting…</span>
+                </button>
+                <button class="delete-modal-btn" @click="closeDeleteModal">❌ Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="tab-title" v-if="developer">
           <div class="tab-box">
             <div
@@ -76,7 +154,7 @@
             </div>
           </div>
         </div>
-        <div style="width: 100%" v-show="tabIndex == 0">
+        <div class="tab-panel tab-panel--process" v-show="tabIndex == 0">
           <div class="nav-content">
             <nav v-if="developer">
               <ul ref="tabs">
@@ -232,12 +310,7 @@
               </ul>
             </nav>
           </div>
-          <div
-            class="bg-content"
-            :style="{
-              height: developer ? 'calc(100vh - 14.5em)' : 'calc(100vh - 12em)',
-            }"
-          >
+          <div class="bg-content">
             <research
               v-show="tabProcessIndex == 0"
               :currentData="currentData"
@@ -257,7 +330,7 @@
             ></feedback>
           </div>
         </div>
-        <div v-show="tabIndex == 1">
+        <div class="tab-panel tab-panel--result" v-show="tabIndex == 1">
           <resultComponent
             :currentData="allData"
             :scenarioName="scenarioName"
@@ -495,7 +568,7 @@ import {
 } from "vue";
 import $ from "jquery";
 import { ElNotification } from "element-plus";
-import { trace, control, url, submitUserInteraction } from "../utils/api";
+import { trace, control, url, submitUserInteraction, deleteTrace, fetchNextTraceIdAfterDelete } from "../utils/api";
 import ALPHA158 from "../constants/qlib";
 import loopComponent from "../components/loop-component.vue";
 import dialogComponent from "../components/dialog.vue";
@@ -544,6 +617,107 @@ const loopNumber = ref(props.loopNumber);
 const updateEnd = ref(false);
 const pauseEnd = ref(false);
 const endTagHandled = ref(false);
+
+// --- Delete trace state (capability: workspace-cleanup) ---
+const deletingTrace = ref(false);
+const deletePlan = ref(null);
+const deleteError = ref(null);
+const deleteSuccess = ref(null);
+
+const onDeleteTraceClick = async () => {
+  deleteError.value = null;
+  deleteSuccess.value = null;
+  deletingTrace.value = true;
+  try {
+    // NOTE: request.js response interceptor returns the raw `response.data`
+    // on success (not the full axios response). On HTTP error it returns
+    // `error.response` (the full axios response), which has no `plan` field,
+    // so we surface the error instead.
+    const data = await deleteTrace(props.id, { execute: false });
+    if (data && data.plan) {
+      deletePlan.value = data.plan;
+    } else if (data && data.error) {
+      deleteError.value = data.error;
+    } else if (
+      data &&
+      typeof data === "object" &&
+      (data.refused !== undefined || data.trace_dir_deleted !== undefined)
+    ) {
+      // Server returned an execute-shape response to a dry-run call —
+      // treat as error since there's no plan to confirm.
+      deleteError.value = "Unexpected response shape from server.";
+    } else {
+      deleteError.value =
+        (data && JSON.stringify(data)) || "Empty response from server";
+    }
+  } catch (e) {
+    deleteError.value =
+      (e && e.response && e.response.data && (e.response.data.error || JSON.stringify(e.response.data))) ||
+      (e && e.message) || String(e);
+  } finally {
+    deletingTrace.value = false;
+  }
+};
+
+const onConfirmDelete = async () => {
+  deleteError.value = null;
+  deletingTrace.value = true;
+  try {
+    const data = await deleteTrace(props.id, { execute: true });
+    if (data && (data.trace_dir_deleted !== undefined || data.refused !== undefined)) {
+      deleteSuccess.value = data;
+      deletePlan.value = null;
+      // Only auto-navigate when the trace was actually deleted.
+      if (data.trace_dir_deleted && !data.refused) {
+        await onDeletedReturn();
+      } else if (data.refused) {
+        // Surface the refusal reason; stay on the modal so the user can read it.
+        deleteError.value = data.reason || "Deletion refused by server.";
+        deleteSuccess.value = null;
+      }
+    } else if (data && data.error) {
+      deleteError.value = data.error;
+    } else {
+      deleteError.value =
+        (data && JSON.stringify(data)) || "Unexpected response from server";
+    }
+  } catch (e) {
+    deleteError.value =
+      (e && e.response && e.response.data && (e.response.data.error || JSON.stringify(e.response.data))) ||
+      (e && e.message) || String(e);
+  } finally {
+    deletingTrace.value = false;
+  }
+};
+
+const closeDeleteModal = () => {
+  deletePlan.value = null;
+  deleteError.value = null;
+  deleteSuccess.value = null;
+};
+
+const onDeletedReturn = async () => {
+  const deletedId = props.id;
+  closeDeleteModal();
+  // Find the next trace to display. Prefer the one that sorts immediately
+  // after the deleted id (gives the user a stable "next" feel); fall back to
+  // the trace-id list panel when no traces remain.
+  const nextId = await fetchNextTraceIdAfterDelete(deletedId);
+  if (nextId) {
+    // Reload to the history panel with selection + auto_view so Playground.vue
+    // auto-selects and opens the next trace's detail page without extra clicks.
+    const params = new URLSearchParams({
+      panel: "3",
+      selection: nextId,
+      auto_view: "1",
+    });
+    window.location.hash = `/?${params.toString()}`;
+  } else {
+    // No traces left; go to the start panel.
+    window.location.hash = `/?panel=3`;
+  }
+  window.location.reload();
+};
 
 const userInteractionVisible = ref(false);
 const userInteractionSubmitting = ref(false);
@@ -1256,6 +1430,8 @@ onUnmounted(() => {});
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   .task-meta-bar {
     display: flex;
     gap: 1.5em;
@@ -1267,6 +1443,115 @@ onUnmounted(() => {});
       color: #2B2B2B;
       strong {
         color: #2e65ff;
+      }
+    }
+  }
+
+  .trace-actions-bar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.4em 1em;
+    gap: 0.5em;
+  }
+
+  .trace-action-btn {
+    padding: 0.4em 0.9em;
+    font-size: 0.85em;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    background: #fff;
+    color: #2B2B2B;
+    transition: background 0.15s ease;
+    &:hover:not(:disabled) {
+      background: #f3f3f3;
+    }
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    &.delete-btn {
+      border-color: rgba(217, 52, 38, 0.5);
+      color: #b3261e;
+      &:hover:not(:disabled) {
+        background: #fdecea;
+      }
+    }
+  }
+
+  .delete-confirm-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .delete-modal-content {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.4em 1.8em;
+    max-width: 640px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+
+    h3 {
+      margin-top: 0;
+      color: #b3261e;
+    }
+
+    .delete-summary {
+      p {
+        margin: 0.4em 0;
+      }
+      .warn-text {
+        color: #b3261e;
+        font-weight: 500;
+      }
+      .info-text {
+        color: #2e65ff;
+        font-style: italic;
+      }
+    }
+
+    .workspace-path-list {
+      margin: 0.3em 0 0.8em;
+      padding-left: 1.4em;
+      font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+      font-size: 0.8em;
+      color: #555;
+      li {
+        word-break: break-all;
+      }
+    }
+
+    .delete-modal-actions {
+      display: flex;
+      gap: 0.8em;
+      margin-top: 1em;
+    }
+
+    .delete-modal-btn {
+      flex: 1;
+      padding: 0.5em 1em;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      background: #fff;
+      &.primary {
+        background: #b3261e;
+        color: #fff;
+        border-color: #b3261e;
+        &:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
       }
     }
   }
@@ -1406,10 +1691,24 @@ onUnmounted(() => {});
       }
     }
   }
-  .bg-content {
+  .tab-panel {
+    flex: 1;
+    min-height: 0;
     width: 100%;
-    height: calc(100vh - 14.5em);
-    overflow: hidden;
+  }
+  .tab-panel--process {
+    display: flex;
+    flex-direction: column;
+  }
+  .tab-panel--result {
+    overflow: auto;
+  }
+  .bg-content {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
     box-sizing: border-box;
     padding: 0.9em 1.8em;
     justify-content: center;

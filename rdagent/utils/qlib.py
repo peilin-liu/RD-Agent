@@ -1,3 +1,6 @@
+import json
+from dataclasses import dataclass, field
+
 from rdagent.core.experiment import FBWorkspace
 from rdagent.utils.env import QlibCondaConf, QlibCondaEnv
 
@@ -257,18 +260,72 @@ PIT_FACTORS = {
 }
 
 _TFW = FBWorkspace()  # test feature workspace
-TEST_FEATURE_CODE = """
-import qlib  
-from qlib.data import D  
 
-qlib.init()  
-expressions = {experessions}
-df = D.features(["SH600000"], expressions, start_time="2010-01-04", end_time="2020-08-31")
+# Tests each expression individually inside a single qlib init so we can report
+# WHICH expression failed and WHY (qlib's original error), instead of a single
+# boolean for the whole batch. Results are emitted as one JSON line prefixed by
+# VALIDATION_RESULT_JSON: and parsed by validate_qlib_features.
+TEST_FEATURE_CODE = """import json
+import qlib
+from qlib.data import D
+
+expressions = __EXPRESSIONS__
+init_error = ""
+try:
+    qlib.init()
+except Exception as e:
+    init_error = "qlib.init() failed: " + str(e)
+    print("VALIDATION_RESULT_JSON:" + json.dumps({
+        "all_valid": False,
+        "init_error": init_error,
+        "invalid": [{"index": i, "expression": e, "error": init_error} for i, e in enumerate(expressions)],
+    }))
+    raise SystemExit(0)
+
+results = []
+for i, exp in enumerate(expressions):
+    try:
+        D.features(["SH600000"], [exp], start_time="2010-01-04", end_time="2020-08-31")
+        results.append({"index": i, "expression": exp, "error": ""})
+    except Exception as e:
+        results.append({"index": i, "expression": exp, "error": str(e)})
+
+invalid = [r for r in results if r["error"]]
+print("VALIDATION_RESULT_JSON:" + json.dumps({
+    "all_valid": len(invalid) == 0,
+    "init_error": "",
+    "invalid": invalid,
+}))
 """
 
 
-def validate_qlib_features(expressions: list[str]) -> bool:
-    _TFW.inject_files(**{"test_fea.py": TEST_FEATURE_CODE.format(experessions=str(expressions))})
+@dataclass
+class FeatureValidationResult:
+    """Outcome of validating a list of qlib feature expressions.
+
+    `invalid` is a list of {"index": int, "expression": str, "error": str} for
+    each expression that failed; `index` aligns with the input order so callers
+    can map back to feature names. `init_error` is non-empty only when qlib
+    itself failed to initialize (in which case every expression is invalid).
+    """
+
+    all_valid: bool
+    invalid: list = field(default_factory=list)
+    init_error: str = ""
+
+    def __bool__(self) -> bool:
+        return self.all_valid
+
+
+def validate_qlib_features(expressions: list[str]) -> FeatureValidationResult:
+    """Validate qlib feature expressions and report per-expression failures.
+
+    Returns a FeatureValidationResult (truthy when all expressions are valid)
+    instead of a plain bool so callers can surface WHICH features are invalid
+    and the underlying qlib error message.
+    """
+    code = TEST_FEATURE_CODE.replace("__EXPRESSIONS__", repr(expressions))
+    _TFW.inject_files(**{"test_fea.py": code})
 
     qlib_env = QlibCondaEnv(conf=QlibCondaConf())
     qlib_env.prepare()
@@ -276,4 +333,50 @@ def validate_qlib_features(expressions: list[str]) -> bool:
         env=qlib_env,
         entry="python test_fea.py",
     )
-    return res.exit_code == 0
+
+    marker = "VALIDATION_RESULT_JSON:"
+    detail = None
+    for line in res.full_stdout.splitlines():
+        if marker in line:
+            try:
+                detail = json.loads(line.split(marker, 1)[1].strip())
+                break
+            except json.JSONDecodeError:
+                continue
+
+    if detail is None:
+        # Script crashed before emitting a result (env/ syntax issue, etc.).
+        tail = res.full_stdout[-2000:] if res.full_stdout else ""
+        init_err = f"validation script did not produce a result (exit_code={res.exit_code}). stdout tail:\n{tail}"
+        return FeatureValidationResult(
+            all_valid=False,
+            invalid=[{"index": i, "expression": e, "error": init_err} for i, e in enumerate(expressions)],
+            init_error=init_err,
+        )
+
+    return FeatureValidationResult(
+        all_valid=detail.get("all_valid", False),
+        invalid=detail.get("invalid", []),
+        init_error=detail.get("init_error", ""),
+    )
+
+
+def format_feature_validation(feat_names: list[str], result: FeatureValidationResult) -> str:
+    """Human-readable summary of invalid features for error messages.
+
+    `feat_names` must align with the expressions passed to validate_qlib_features
+    (same order); it is used to translate the invalid expression indices back to
+    feature names.
+    """
+    if not result.invalid:
+        return result.init_error or "no invalid features reported"
+    lines = []
+    if result.init_error:
+        lines.append(f"qlib init failed: {result.init_error}")
+    for inv in result.invalid:
+        idx = inv.get("index")
+        name = feat_names[idx] if idx is not None and idx < len(feat_names) else "?"
+        expr = inv.get("expression", "")
+        err = inv.get("error", "")
+        lines.append(f"  - {name} = {expr}\n      -> {err}")
+    return "\n".join(lines)

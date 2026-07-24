@@ -8,6 +8,37 @@ declare module '@/utils/api' {
   export function getStdoutDownloadUrl(traceId: string): string;
   export function getRegions(): Promise<{ regions: string[]; default_region: string }>;
   export function getMarkets(region: string): Promise<{ region: string; markets: string[] }>;
+  export function getInstruments(region: string, market?: string): Promise<{
+    region: string;
+    market: string;
+    instruments: Array<{ symbol: string; name: string; listing_date: string; industry_code: string; industry_name: string }>;
+    error?: string;
+  }>;
+  export function getMarketSnapshot(region: string, market?: string, date?: string): Promise<{
+    region: string;
+    market: string;
+    date: string;
+    symbols_count: number;
+    data: Array<{
+      symbol: string;
+      name: string;
+      industry_code: string;
+      industry_name: string;
+      open: number | null;
+      close: number | null;
+      high: number | null;
+      low: number | null;
+      pct_chg: number | null;
+      turnover: number | null;
+      volume: number | null;
+      amount: number | null;
+      PE: number | null;
+      PB: number | null;
+      DV_RATIO: number | null;
+      DV_TTM: number | null;
+    }>;
+    error?: string;
+  }>;
   export function setRegion(region: string): Promise<any>;
   export function getSymbols(region: string): Promise<Array<{ symbol: string; name: string; listing_date?: string }>>;
   export function getOHLCV(
