@@ -285,7 +285,7 @@ except Exception as e:
 results = []
 for i, exp in enumerate(expressions):
     try:
-        D.features(["SH600000"], [exp], start_time="2010-01-04", end_time="2020-08-31")
+        D.features(["600000.sh"], [exp], start_time="2010-01-04", end_time="2020-08-31")
         results.append({"index": i, "expression": exp, "error": ""})
     except Exception as e:
         results.append({"index": i, "expression": exp, "error": str(e)})

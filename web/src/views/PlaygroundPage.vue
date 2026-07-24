@@ -409,23 +409,46 @@
           <div class="interaction-form">
             <div v-if="isFeatureInteraction" class="feature-table">
               <div class="feature-layout">
-                <div class="feature-pool-block" v-if="availableFeatureTags.length">
-                  <div class="feature-pool-title">Base features (Alpha158)</div>
-                  <div class="feature-pool">
-                    <div class="feature-pool-tags">
+                <div class="feature-pool-block">
+                  <div class="feature-pool-tabs">
                     <button
-                      class="feature-tag"
                       type="button"
-                      v-for="tag in availableFeatureTags"
-                      :key="tag.name"
-                      @mouseenter="showFeatureTooltip($event, tag.expression)"
-                      @mousemove="moveFeatureTooltip($event)"
-                      @mouseleave="hideFeatureTooltip"
-                      @click="addFeatureFromPool(tag)"
+                      class="feature-pool-tab"
+                      :class="{ 'is-active': featurePoolTab === 'alpha158' }"
+                      @click="onFeaturePoolTabChange('alpha158')"
                     >
-                      {{ tag.name }}
+                      Alpha158
+                    </button>
+                    <button
+                      type="button"
+                      class="feature-pool-tab"
+                      :class="{ 'is-active': featurePoolTab === 'custom' }"
+                      @click="onFeaturePoolTabChange('custom')"
+                    >
+                      Custom
                     </button>
                   </div>
+                  <div class="feature-pool">
+                    <div v-if="featurePoolTab === 'custom' && customFactorsError" class="feature-pool-empty">
+                      {{ customFactorsError }}
+                    </div>
+                    <div v-else-if="!availableFeatureTags.length" class="feature-pool-empty">
+                      {{ featurePoolTab === 'custom' ? 'No custom factors. Add factors to ~/.rd-agent/factors.json.' : 'All Alpha158 factors already added.' }}
+                    </div>
+                    <div v-else class="feature-pool-tags">
+                      <button
+                        class="feature-tag"
+                        type="button"
+                        v-for="tag in availableFeatureTags"
+                        :key="tag.name"
+                        @mouseenter="showFeatureTooltip($event, tag.expression)"
+                        @mousemove="moveFeatureTooltip($event)"
+                        @mouseleave="hideFeatureTooltip"
+                        @click="addFeatureFromPool(tag)"
+                      >
+                        {{ tag.name }}
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div class="feature-editor">
@@ -568,7 +591,7 @@ import {
 } from "vue";
 import $ from "jquery";
 import { ElNotification } from "element-plus";
-import { trace, control, url, submitUserInteraction, deleteTrace, fetchNextTraceIdAfterDelete } from "../utils/api";
+import { trace, control, url, submitUserInteraction, deleteTrace, fetchNextTraceIdAfterDelete, getCustomFactors } from "../utils/api";
 import ALPHA158 from "../constants/qlib";
 import loopComponent from "../components/loop-component.vue";
 import dialogComponent from "../components/dialog.vue";
@@ -733,6 +756,10 @@ const userInstructionPlaceholder = "Example: 使用中文来生成假设";
 const featureRows = ref([]);
 const featureValidationMsg = ref("");
 const localFeatureError = ref("");
+const customFactors = ref({});
+const customFactorsLoaded = ref(false);
+const customFactorsError = ref("");
+const featurePoolTab = ref("alpha158");
 const featureTooltip = reactive({
   visible: false,
   text: "",
@@ -747,10 +774,34 @@ const availableFeatureTags = computed(() => {
       .map((row) => (row.name == null ? "" : String(row.name).trim()))
       .filter(Boolean)
   );
-  return Object.keys(ALPHA158)
+  const source = featurePoolTab.value === "custom" ? customFactors.value : ALPHA158;
+  return Object.keys(source)
     .filter((name) => !used.has(name))
-    .map((name) => ({ name, expression: ALPHA158[name] }));
+    .map((name) => ({ name, expression: source[name] }));
 });
+
+const loadCustomFactors = async () => {
+  if (customFactorsLoaded.value) return;
+  try {
+    const data = await getCustomFactors();
+    if (data && typeof data === "object" && !Array.isArray(data) && !data.error) {
+      customFactors.value = data;
+    } else if (data && data.error) {
+      customFactorsError.value = data.error;
+    }
+  } catch (e) {
+    customFactorsError.value = (e && e.message) || String(e);
+  } finally {
+    customFactorsLoaded.value = true;
+  }
+};
+
+const onFeaturePoolTabChange = (tab) => {
+  featurePoolTab.value = tab;
+  if (tab === "custom") {
+    loadCustomFactors();
+  }
+};
 
 const configuredFeatureCount = computed(
   () =>
@@ -1234,25 +1285,47 @@ function getData(data) {
     } else if (item.tag == "feedback.return_chart") {
       onePollDataObj.feedbackCharts = item.content;
     } else if (item.tag == "feedback.metric") {
-      // 场景多只需要显示这四个
-      //    "IC",
-      // "1day.excess_return_without_cost.annualized_return",
-      // "1day.excess_return_without_cost.information_ratio",
-      // "1day.excess_return_without_cost.max_drawdown",
       const metricResult = JSON.parse(item.content.result);
-      if (Object.keys(metricResult).length > 4) {
-        onePollDataObj.feedbackMetric = {
-          IC: metricResult["IC"],
-          "1day.excess_return_without_cost.annualized_return":
-            metricResult["1day.excess_return_without_cost.annualized_return"],
-          "1day.excess_return_without_cost.information_ratio":
-            metricResult["1day.excess_return_without_cost.information_ratio"],
-          "1day.excess_return_without_cost.max_drawdown":
-            metricResult["1day.excess_return_without_cost.max_drawdown"],
-        };
-      } else {
-        onePollDataObj.feedbackMetric = metricResult;
-      }
+      // Display a fixed, opinionated set of metrics across prediction
+      // quality (IC/Rank ICIR), return (annualized return / information
+      // ratio / max drawdown) and trading behavior (avg daily turnover,
+      // total cost, trade counts, holding days). Missing keys fall back
+      // to null so the UI can render a placeholder rather than silently
+      // dropping the field.
+      //
+      // For annualized return / IR / max drawdown we feed the chart an
+      // object {含成本, 不含成本} so the chart renders two side-by-side
+      // series in one panel — the gap between the two lines visually shows
+      // how much trading cost eats into the return. Other metrics stay
+      // single numbers.
+      const pick = (key) =>
+        metricResult && metricResult[key] !== undefined ? metricResult[key] : null;
+      const withAndWithout = (wKey, woKey) => {
+        const w = pick(wKey);
+        const wo = pick(woKey);
+        if (w == null && wo == null) return null;
+        return { 含成本: w, 不含成本: wo };
+      };
+      onePollDataObj.feedbackMetric = {
+        "Rank ICIR": pick("Rank ICIR"),
+        "年化收益": withAndWithout(
+          "1day.excess_return_with_cost.annualized_return",
+          "1day.excess_return_without_cost.annualized_return"
+        ),
+        "信息比率 IR": withAndWithout(
+          "1day.excess_return_with_cost.information_ratio",
+          "1day.excess_return_without_cost.information_ratio"
+        ),
+        "最大回撤": withAndWithout(
+          "1day.excess_return_with_cost.max_drawdown",
+          "1day.excess_return_without_cost.max_drawdown"
+        ),
+        avg_daily_turnover: pick("avg_daily_turnover"),
+        total_cost: pick("total_cost"),
+        avg_daily_trade_count: pick("avg_daily_trade_count"),
+        total_trade_count: pick("total_trade_count"),
+        avg_holding_days_per_symbol: pick("avg_holding_days_per_symbol"),
+      };
     } else if (item.tag == "END") {
       allData.value.push(Object.assign({}, onePollDataObj));
       userInteractionWaitingHypothesis.value = false;
@@ -1817,6 +1890,37 @@ onUnmounted(() => {});
     font-weight: 700;
     color: #1c2b57;
     margin-bottom: 0.6em;
+  }
+  .feature-pool-tabs {
+    display: flex;
+    gap: 0.4em;
+    margin-bottom: 0.6em;
+  }
+  .feature-pool-tab {
+    border: 1px solid rgba(38, 103, 255, 0.3);
+    background: transparent;
+    color: #1c2b57;
+    padding: 0.35em 0.9em;
+    border-radius: 8px;
+    font-size: 0.85em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .feature-pool-tab:hover {
+    background: rgba(38, 103, 255, 0.1);
+  }
+  .feature-pool-tab.is-active {
+    background: #2667ff;
+    color: #fff;
+    border-color: #2667ff;
+  }
+  .feature-pool-empty {
+    color: #6b7280;
+    font-size: 0.85em;
+    font-style: italic;
+    padding: 0.6em 0.2em;
+    line-height: 1.5;
   }
   .feature-pool-tags {
     display: flex;

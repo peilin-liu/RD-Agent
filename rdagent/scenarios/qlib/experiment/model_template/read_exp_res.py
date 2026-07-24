@@ -46,6 +46,47 @@ else:
     # Load the specified file from the latest recorder
     metrics = pd.Series(latest_recorder.list_metrics())
 
+    # Extract trading-level metrics from portfolio_analysis artifacts.
+    # mlflow metrics already include IC/ICIR/Rank IC/Rank ICIR/annualized
+    # return/max drawdown, but turnover / trade count / holding days / total
+    # cost live in the portfolio_analysis pickles, so we compute them here
+    # and merge into the metrics series for downstream reporting.
+    try:
+        report_df = latest_recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
+        indicators_df = latest_recorder.load_object("portfolio_analysis/indicators_normal_1day.pkl")
+        positions_obj = latest_recorder.load_object("portfolio_analysis/positions_normal_1day.pkl")
+
+        # Average daily turnover (fraction of portfolio traded per day).
+        metrics["avg_daily_turnover"] = float(report_df["turnover"].mean())
+        # Total trading cost (cumulative cost at last day, in account currency).
+        metrics["total_cost"] = float(report_df["total_cost"].iloc[-1])
+        # Average daily trade count (number of stocks traded per day) and
+        # total trade count (sum of per-day stock trade counts).
+        metrics["avg_daily_trade_count"] = float(indicators_df["count"].mean())
+        metrics["total_trade_count"] = float(indicators_df["count"].sum())
+        # Average holding days per symbol. Build a per-stock holding-day set
+        # from daily positions, then average across all stocks ever held.
+        holding_days = []
+        for day in sorted(positions_obj.keys()):
+            pos = positions_obj[day]
+            try:
+                amt_dict = pos.get_stock_amount_dict()
+            except Exception:
+                amt_dict = {}
+            for stock, amount in amt_dict.items():
+                if amount and amount > 0:
+                    holding_days.append((stock, day))
+        if holding_days:
+            stock_days = {}
+            for stock, day in holding_days:
+                stock_days.setdefault(stock, set()).add(day)
+            counts = [len(s) for s in stock_days.values()]
+            metrics["avg_holding_days_per_symbol"] = float(sum(counts) / len(counts))
+        else:
+            metrics["avg_holding_days_per_symbol"] = 0.0
+    except Exception as e:
+        print(f"Warning: failed to extract portfolio metrics: {e}")
+
     output_path = Path(__file__).resolve().parent / "qlib_res.csv"
     metrics.to_csv(output_path)
 

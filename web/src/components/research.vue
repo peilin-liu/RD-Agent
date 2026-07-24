@@ -269,7 +269,17 @@ const wrapStandaloneLatexContent = (
 };
 
 const formatFormulationContent = (value) => {
-  return wrapStandaloneLatexContent(value, {
+  // Normalize over-escaped backslashes from LLM JSON output. When an LLM
+  // emits a LaTeX formula like "\text{LSTM}" inside a JSON string, the
+  // sequence can be re-escaped by the JSON encoder into "\\text{LSTM}",
+  // and after json.loads the Python side re-emits it as "\\\\text{LSTM}".
+  // katex then fails to parse "\\\\text" and the UI shows garbled chars.
+  // Collapse runs of 3+ backslashes down to 1 before handing to katex.
+  let normalized = value;
+  if (typeof normalized === "string") {
+    normalized = normalized.replace(/\\\\+/g, "\\");
+  }
+  return wrapStandaloneLatexContent(normalized, {
     displayMode: true,
     allowSentencePunctuation: true,
     includeOperators: true,

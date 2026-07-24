@@ -171,6 +171,15 @@ export function getOHLCV(region, instruments, fields, start, end, adjust, pitFie
     })
 }
 
+export function getCustomFactors() {
+    // Returns the user-maintained custom factor map from ~/.rd-agent/factors.json
+    // (name -> qlib expression). Missing file yields {}.
+    return request({
+        url: url + 'custom_factors',
+        method: 'get',
+    })
+}
+
 export function getScenarioInfo() {
     return request({
         url: url + "api/scenario_info",

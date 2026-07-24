@@ -20,6 +20,21 @@ IMPORTANT_METRICS = [
     "1day.excess_return_with_cost.max_drawdown",
 ]
 
+# Trading-behavior metrics fed to the LLM feedback prompt alongside
+# IMPORTANT_METRICS (IC / annualized return / max drawdown) above. The LLM
+# uses these to describe turnover, cost, trade counts and holding days in
+# its Observations summary. Keys must exist in exp.result, which is
+# populated by read_exp_res.py from mlruns metrics + portfolio_analysis
+# pickles.
+FEEDBACK_METRICS = [
+    "Rank ICIR",
+    "avg_daily_turnover",
+    "total_cost",
+    "avg_daily_trade_count",
+    "total_trade_count",
+    "avg_holding_days_per_symbol",
+]
+
 
 def process_results(current_result, sota_result):
     # Convert the results to dataframes
@@ -148,6 +163,22 @@ class QlibModelExperiment2Feedback(Experiment2Feedback):
 
         # Generate the user prompt
         SOTA_hypothesis, SOTA_experiment = trace.get_sota_hypothesis_and_experiment()
+
+        def _safe_loc(result, metrics):
+            """Return result.loc[metrics], tolerating missing keys.
+
+            Some trading-behavior metrics may be absent on old traces (before
+            read_exp_res.py started extracting turnover / cost / trade counts
+            from portfolio_analysis pickles). Drop any missing keys instead
+            of raising KeyError so the LLM still gets whatever is available.
+            """
+            if result is None:
+                return None
+            available = [m for m in metrics if m in result.index]
+            if not available:
+                return None
+            return result.loc[available]
+
         user_prompt = T("scenarios.qlib.prompts:model_feedback_generation.user").r(
             sota_hypothesis=SOTA_hypothesis,
             sota_task=SOTA_experiment.sub_tasks[0].get_task_information() if SOTA_hypothesis else None,
@@ -156,6 +187,12 @@ class QlibModelExperiment2Feedback(Experiment2Feedback):
             hypothesis=hypothesis,
             exp=exp,
             exp_result=exp.result.loc[IMPORTANT_METRICS] if exp.result is not None else "execution failed",
+            # FEEDBACK_METRICS is for display only — the LLM describes these
+            # trading-behavior metrics in its Observations summary so the user
+            # sees turnover/cost/trade counts/holding days at a glance. It is
+            # NOT fed for the SOTA round, so SOTA comparison stays driven by
+            # IMPORTANT_METRICS (IC / annualized return / max drawdown) only.
+            exp_trading_metrics=_safe_loc(exp.result, FEEDBACK_METRICS) if exp.result is not None else None,
         )
 
         # Call the APIBackend to generate the response for hypothesis feedback

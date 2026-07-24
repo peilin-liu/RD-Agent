@@ -207,6 +207,29 @@ def favicon():
     return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/vnd.microsoft.icon")
 
 
+@app.route("/custom_factors")
+def custom_factors():
+    """Return user-maintained custom factor definitions from ~/.rd-agent/factors.json.
+
+    The file is a JSON object mapping factor name -> qlib expression, e.g.
+    {"my_mom_20": "Ref($close, 20)/$close - 1"}. Missing file or invalid JSON
+    returns an empty dict so the frontend Custom tab can render gracefully.
+    """
+    factors_file = Path.home() / ".rd-agent" / "factors.json"
+    if not factors_file.exists():
+        return jsonify({})
+    try:
+        import json
+
+        with factors_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return jsonify({"error": "factors.json must be a JSON object of name -> expression"}), 400
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": f"Failed to read factors.json: {e}"}), 500
+
+
 def _normalize_static_request_path(fn: str) -> str:
     # Strip a leading static_path prefix from the request path (supports both
     # relative ("./git_ignore_folder/static/...") and absolute paths).

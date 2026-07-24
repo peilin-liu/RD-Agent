@@ -244,7 +244,7 @@ model_feedback_generation:
     Please provide detailed and constructive feedback.
     Example JSON Structure for Result Analysis:
     {
-      "Observations": "First analyze the model's training logs to determine whether there are any issues with its parameter settings. Then clearly summarize the current results and the SOTA results with exact scores and any notable patterns. Limit your summary to no more than three concise, data-focused sentences.",
+      "Observations": "First analyze the model's training logs to determine whether there are any issues with its parameter settings. Then clearly summarize the current results and the SOTA results with exact scores and any notable patterns. Also describe the trading behavior reflected in the Trading Metrics — avg daily turnover, total cost, avg/total trade counts, and avg holding days per symbol — so the user can see the trading-level cost and activity at a glance. Limit your summary to no more than four concise, data-focused sentences.",
       "Feedback for Hypothesis": "Explicitly confirm or refute the hypothesis based on specific data points or performance trends. Limit to two sentences.",
       "New Hypothesis": "Propose a revised hypothesis, considering observed patterns and limitations in the current one. Limit to no more than two sentences.",
       "Reasoning": "Explain the rationale for the new hypothesis using specific trends or performance shifts. Be concise but technically complete. Limit to two sentences.",
@@ -255,15 +255,15 @@ model_feedback_generation:
 
 
   user: |-
-    {% if sota_hypothesis %} 
+    {% if sota_hypothesis %}
     # SOTA Round Information:
     Hypothesis: {{ sota_hypothesis.hypothesis }}
     Specific Task: {{ sota_task }}
     Code Implementation: {{ sota_code }}
     Result: {{ sota_result }}
     {% else %}
-    # This is the first round. No previous information available. As long as the performance is not too negative (eg.ICIR is greater than 0), treat it as successful. Do not set the threshold too high.  
-    {% endif %} 
+    # This is the first round. No previous information available. As long as the performance is not too negative (eg.ICIR is greater than 0), treat it as successful. Do not set the threshold too high.
+    {% endif %}
     
     # Current Round Information:
     Hypothesis: {{ hypothesis.hypothesis }}
@@ -272,6 +272,9 @@ model_feedback_generation:
     Code Implementation: {{ exp.sub_workspace_list[0].file_dict.get("model.py") }}
     Training Log: {{ exp.stdout }}
     Result: {{ exp_result }}
+    {% if exp_trading_metrics is defined and exp_trading_metrics is not none %}
+    Trading Metrics: {{ exp_trading_metrics }}
+    {% endif %}
 
     # When judging the results:
     1. **Recommendation for Replacement:**

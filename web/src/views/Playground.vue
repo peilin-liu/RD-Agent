@@ -285,7 +285,7 @@
                         v-model="num1"
                         :controls="false"
                         :min="1"
-                        :max="48"
+                        :max="240"
                         @change="handleChange1"
                       />
                       hours</el-radio
@@ -933,8 +933,8 @@ const applyScenarioConfig = (scenario) => {
   developer.value = resolvedScenario.developer;
   loopRadio.value = resolvedScenario.loopRadio;
   hourRadio.value = resolvedScenario.hourRadio;
-  num.value = loopRadio.value == "-1" ? resolvedScenario.loopNumber : 1;
-  num1.value = hourRadio.value == "-1" ? resolvedScenario.hourNumber : 1;
+  num.value = loopRadio.value == "-1" ? resolvedScenario.loopNumber : resolvedScenario.loopNumber;
+  num1.value = hourRadio.value == "-1" ? resolvedScenario.hourNumber : 24;
   loopNumber.value = resolvedScenario.loopNumber;
   hourNumber.value = resolvedScenario.hourNumber;
 };
