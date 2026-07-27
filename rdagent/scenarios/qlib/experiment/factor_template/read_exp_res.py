@@ -1,3 +1,4 @@
+import os
 import pickle
 from pathlib import Path
 
@@ -6,7 +7,8 @@ import qlib
 from mlflow.entities import ViewType
 from mlflow.tracking import MlflowClient
 
-qlib.init()
+_provider_uri = os.environ.get("QLIB_PROVIDER_URI", "~/.qlib/qlib_data/cn_data")
+qlib.init(provider_uri=_provider_uri)
 
 from qlib.workflow import R
 

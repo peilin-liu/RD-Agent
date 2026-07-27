@@ -266,13 +266,15 @@ _TFW = FBWorkspace()  # test feature workspace
 # boolean for the whole batch. Results are emitted as one JSON line prefixed by
 # VALIDATION_RESULT_JSON: and parsed by validate_qlib_features.
 TEST_FEATURE_CODE = """import json
+import os
 import qlib
 from qlib.data import D
 
 expressions = __EXPRESSIONS__
 init_error = ""
 try:
-    qlib.init()
+    _provider_uri = os.environ.get("QLIB_PROVIDER_URI", "~/.qlib/qlib_data/cn_data")
+    qlib.init(provider_uri=_provider_uri)
 except Exception as e:
     init_error = "qlib.init() failed: " + str(e)
     print("VALIDATION_RESULT_JSON:" + json.dumps({
