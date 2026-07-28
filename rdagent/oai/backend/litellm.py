@@ -79,10 +79,18 @@ class LiteLLMAPIBackend(APIBackend):
                 f"{LogColors.MAGENTA}Creating embedding{LogColors.END} for: {input_content_list}",
                 tag="debug_litellm_emb",
             )
-        response = embedding(
-            model=model_name,
-            input=input_content_list,
-        )
+        emb_kwargs: dict[str, Any] = {
+            "model": model_name,
+            "input": input_content_list,
+        }
+        # Honor per-purpose OpenAI-compatible endpoint overrides. litellm otherwise
+        # falls back to OPENAI_API_KEY / OPENAI_API_BASE env, which conflicts when
+        # chat and embedding target different providers.
+        if LITELLM_SETTINGS.embedding_openai_base_url:
+            emb_kwargs["api_base"] = LITELLM_SETTINGS.embedding_openai_base_url
+        if LITELLM_SETTINGS.embedding_openai_api_key:
+            emb_kwargs["api_key"] = LITELLM_SETTINGS.embedding_openai_api_key
+        response = embedding(**emb_kwargs)
         response_list = [data["embedding"] for data in response.data]
         return response_list
 
@@ -151,6 +159,14 @@ class LiteLLMAPIBackend(APIBackend):
 
         complete_kwargs = self.get_complete_kwargs()
         model = complete_kwargs["model"]
+
+        # Honor per-purpose OpenAI-compatible endpoint overrides. litellm otherwise
+        # falls back to OPENAI_API_KEY / OPENAI_API_BASE env, which conflicts when
+        # chat and embedding target different providers.
+        if LITELLM_SETTINGS.chat_openai_base_url:
+            kwargs.setdefault("api_base", LITELLM_SETTINGS.chat_openai_base_url)
+        if LITELLM_SETTINGS.chat_openai_api_key:
+            kwargs.setdefault("api_key", LITELLM_SETTINGS.chat_openai_api_key)
 
         response = completion(
             messages=messages,
