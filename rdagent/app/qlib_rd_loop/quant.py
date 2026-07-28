@@ -139,6 +139,7 @@ def main(
     base_features_path: str | None = None,
     region: str | None = None,
     market: str | None = None,
+    benchmark: str | None = None,
     **kwargs,
 ):
     """
@@ -147,10 +148,15 @@ def main(
     resolved_region = region or get_default_region()
     os.environ["QLIB_REGION"] = resolved_region
     os.environ["QLIB_MARKET"] = market or ""
+    os.environ["QLIB_BENCHMARK"] = benchmark or ""
     logger.info(
-        f"[task start] scenario=fin_quant region={resolved_region} market={market or '(region default)'}"
+        f"[task start] scenario=fin_quant region={resolved_region} "
+        f"market={market or '(region default)'} benchmark={benchmark or '(region default)'}"
     )
-    logger.log_object({"region": resolved_region, "market": market or ""}, tag="task.meta")
+    logger.log_object(
+        {"region": resolved_region, "market": market or "", "benchmark": benchmark or ""},
+        tag="task.meta",
+    )
 
     if path is None:
         quant_loop = QuantRDLoop(QUANT_PROP_SETTING)

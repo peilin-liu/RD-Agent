@@ -326,6 +326,39 @@
                   />
                 </div>
               </div>
+              <div class="compact-setting-row is-third" v-if="isFinQlibScenario">
+                <div class="title with-tip compact-setting-title">
+                  Benchmark
+                  <el-tooltip
+                    effect="dark"
+                    :offset="8"
+                    content="Qlib benchmark index ticker (e.g. 000300.sh) used to compute excess return / alpha / beta. Defaults to the region's benchmark if not set."
+                    placement="top"
+                  >
+                    <span class="tip-icon">?</span>
+                  </el-tooltip>
+                </div>
+                <div class="radio-box compact-config-box compact-setting-box">
+                  <el-select
+                    v-if="benchmarkList.length > 0"
+                    v-model="currentBenchmark"
+                    @change="onBenchmarkChange"
+                    filterable
+                    size="small"
+                    style="width: 160px"
+                  >
+                    <el-option v-for="b in benchmarkList" :key="b" :label="b" :value="b" />
+                  </el-select>
+                  <el-input
+                    v-else
+                    v-model="currentBenchmark"
+                    @change="onBenchmarkChange"
+                    size="small"
+                    placeholder="benchmark ticker"
+                    style="width: 160px"
+                  />
+                </div>
+              </div>
             </div>
             <div
               class="btn-main"
@@ -438,7 +471,7 @@
 import { computed, ref, watch, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import { Refresh } from "@element-plus/icons-vue";
-import { getHistoryTraceIds, uploadFile, getRegions, getMarkets, setRegion, getScenarioInfo, getDataRange, reloadQlib } from "../utils/api";
+import { getHistoryTraceIds, uploadFile, getRegions, getMarkets, getBenchmarks, setRegion, getScenarioInfo, getDataRange, reloadQlib } from "../utils/api";
 import selectComponent from "../components/select-component.vue";
 import smSelectComponent from "../components/sm-select-component.vue";
 import SymbolsViewer from "../components/SymbolsViewer.vue";
@@ -727,6 +760,9 @@ const FIN_QLIB_SCENARIOS = new Set([
 const marketList = ref([]);
 const currentMarket = ref("");
 
+const benchmarkList = ref([]);
+const currentBenchmark = ref("");
+
 const isFinQlibScenario = computed(() => {
   return scenarioChecked.value && FIN_QLIB_SCENARIOS.has(scenarioChecked.value.name);
 });
@@ -746,6 +782,23 @@ async function refreshMarkets(region) {
 
 function onMarketChange(val) {
   if (val) sessionStorage.setItem("selectedMarket", val);
+}
+
+async function refreshBenchmarks(region) {
+  if (!region) {
+    benchmarkList.value = [];
+    return;
+  }
+  try {
+    const res = await getBenchmarks(region);
+    benchmarkList.value = Array.isArray(res?.benchmarks) ? res.benchmarks : [];
+  } catch {
+    benchmarkList.value = [];
+  }
+}
+
+function onBenchmarkChange(val) {
+  if (val) sessionStorage.setItem("selectedBenchmark", val);
 }
 
 function formatDataDesc(split, dataRange) {
@@ -823,6 +876,9 @@ onMounted(async () => {
   refreshMarkets(currentRegion.value);
   const savedMarket = sessionStorage.getItem("selectedMarket");
   if (savedMarket) currentMarket.value = savedMarket;
+  refreshBenchmarks(currentRegion.value);
+  const savedBenchmark = sessionStorage.getItem("selectedBenchmark");
+  if (savedBenchmark) currentBenchmark.value = savedBenchmark;
   refreshDataDescriptions();
 });
 
@@ -834,6 +890,13 @@ function onRegionChange(val) {
     if (marketList.value.length > 0 && !marketList.value.includes(currentMarket.value)) {
       currentMarket.value = marketList.value[0];
       sessionStorage.setItem("selectedMarket", currentMarket.value);
+    }
+  });
+  refreshBenchmarks(val).then(() => {
+    // reset benchmark if cached list doesn't contain current selection
+    if (benchmarkList.value.length > 0 && !benchmarkList.value.includes(currentBenchmark.value)) {
+      currentBenchmark.value = benchmarkList.value[0];
+      sessionStorage.setItem("selectedBenchmark", currentBenchmark.value);
     }
   });
   refreshDataDescriptions();
@@ -1038,6 +1101,10 @@ const createScenarioFormData = () => {
     const storedMarket = sessionStorage.getItem("selectedMarket");
     if (storedMarket) {
       formData.append("market", storedMarket);
+    }
+    const storedBenchmark = sessionStorage.getItem("selectedBenchmark");
+    if (storedBenchmark) {
+      formData.append("benchmark", storedBenchmark);
     }
   }
 

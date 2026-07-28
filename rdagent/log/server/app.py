@@ -658,6 +658,7 @@ def upload_file():
     all_duration = request.form.get("all_duration")
     region = request.form.get("region")
     market = request.form.get("market")
+    benchmark = request.form.get("benchmark")
 
     # scenario = "Data Science Loop"
     if scenario == "Data Science":
@@ -699,6 +700,7 @@ def upload_file():
             "base_features_path": str(trace_files_path),
             "region": region,
             "market": market,
+            "benchmark": benchmark,
         }
     if scenario == "Finance Model Implementation":
         target_name = "fin_model"
@@ -708,6 +710,7 @@ def upload_file():
             "base_features_path": str(trace_files_path),
             "region": region,
             "market": market,
+            "benchmark": benchmark,
         }
     if scenario == "Finance Whole Pipeline":
         target_name = "fin_quant"
@@ -717,6 +720,7 @@ def upload_file():
             "base_features_path": str(trace_files_path),
             "region": region,
             "market": market,
+            "benchmark": benchmark,
         }
     if scenario == "Finance Data Building (Reports)":
         target_name = "fin_factor_report"
@@ -740,6 +744,10 @@ def upload_file():
         app.logger.warning(f"[upload] scenario={scenario} region={region} market={market}")
     else:
         app.logger.warning(f"[upload] scenario={scenario} region={region} market=(not set, will use region default)")
+    if benchmark:
+        app.logger.warning(f"[upload] scenario={scenario} region={region} benchmark={benchmark}")
+    else:
+        app.logger.warning(f"[upload] scenario={scenario} region={region} benchmark=(not set, will use region default)")
     task = RDAgentTask(
         target_name=target_name,
         kwargs=kwargs,
@@ -1295,6 +1303,22 @@ def get_markets():
     return jsonify({"region": region, "markets": get_cached_markets(region)}), 200
 
 
+@app.route("/api/benchmarks", methods=["GET"])
+def get_benchmarks():
+    """Return cached benchmark list for a region (scanned from features dir at startup).
+
+    Benchmark is a single index ticker (e.g. 000300.sh) whose price data lives in
+    `qlib_data_path/features/<ticker>/`. Candidates come from a curated list of
+    common indices per region, filtered by actual existence in the features dir.
+    """
+    from rdagent.core.region_config import get_cached_benchmarks
+
+    region = request.args.get("region")
+    if not region:
+        return jsonify({"error": "region query param required"}), 400
+    return jsonify({"region": region, "benchmarks": get_cached_benchmarks(region)}), 200
+
+
 @app.route("/api/instruments/<region>", methods=["GET"])
 def get_instruments(region: str):
     """Return active symbols for a market classification.
@@ -1415,11 +1439,18 @@ def main(port: int = 19899):
     app.config["UI_SERVER_PORT"] = port
     _load_existing_traces(log_folder_path)
     # Preload all regions at startup
-    from rdagent.core.region_config import get_available_regions, scan_all_regions
+    from rdagent.core.region_config import (
+        get_available_regions,
+        scan_all_benchmarks,
+        scan_all_regions,
+    )
 
     markets_cache = scan_all_regions()
     for r, markets in markets_cache.items():
         app.logger.info(f"Region {r} markets scanned: {len(markets)} markets cached")
+    benchmarks_cache = scan_all_benchmarks()
+    for r, benchmarks in benchmarks_cache.items():
+        app.logger.info(f"Region {r} benchmarks scanned: {len(benchmarks)} benchmarks cached")
     for r in get_available_regions():
         try:
             _get_provider(r)

@@ -77,9 +77,14 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         region = os.environ.get("QLIB_REGION", "cn")
         ri = get_region_config(region)
         market = os.environ.get("QLIB_MARKET") or ri.market
+        benchmark = os.environ.get("QLIB_BENCHMARK") or ri.benchmark
         logger.info(
             f"[qlib market] region={region} configured_market={ri.market} "
             f"override={os.environ.get('QLIB_MARKET') or ''} -> using market={market}"
+        )
+        logger.info(
+            f"[qlib benchmark] region={region} configured_benchmark={ri.benchmark} "
+            f"override={os.environ.get('QLIB_BENCHMARK') or ''} -> using benchmark={benchmark}"
         )
 
         # Seed base_features with PIT financial factors declared in
@@ -102,7 +107,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             "qlib_provider_uri": ri.qlib_data_path,
             "qlib_region": region,
             "qlib_market": market,
-            "qlib_benchmark": ri.benchmark,
+            "qlib_benchmark": benchmark,
         }
         if fbps.test_end is not None:
             env_to_use.update({"test_end": fbps.test_end})

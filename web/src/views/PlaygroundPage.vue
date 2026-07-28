@@ -15,9 +15,10 @@
         @toggleAutoSkip="handleAutoSkipToggle"
       ></loopComponent>
       <div class="main-content">
-        <div class="task-meta-bar" v-if="taskMeta && (taskMeta.region || taskMeta.market)">
+        <div class="task-meta-bar" v-if="taskMeta && (taskMeta.region || taskMeta.market || taskMeta.benchmark)">
           <span class="task-meta-label" v-if="taskMeta.region">Region: <strong>{{ taskMeta.region }}</strong></span>
           <span class="task-meta-label" v-if="taskMeta.market">Market: <strong>{{ taskMeta.market }}</strong></span>
+          <span class="task-meta-label" v-if="taskMeta.benchmark">Benchmark: <strong>{{ taskMeta.benchmark }}</strong></span>
         </div>
         <div class="trace-actions-bar">
           <button
@@ -1205,7 +1206,7 @@ const firstPollFlag = ref(true);
 function getData(data) {
   data.forEach((item) => {
     if (item.tag == "task.meta") {
-      if (item.content && (item.content.region || item.content.market)) {
+      if (item.content && (item.content.region || item.content.market || item.content.benchmark)) {
         taskMeta.value = item.content;
       }
     } else if (item.tag == "feedback.hypothesis_feedback") {

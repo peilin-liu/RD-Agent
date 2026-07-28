@@ -261,3 +261,66 @@ def get_cached_markets(region: str) -> list[str]:
 def scan_all_regions() -> dict[str, list[str]]:
     """便捷包装：扫描所有 region 并初始化/刷新进程内 MarketCache。"""
     return MarketCache.instance().scan_all_regions()
+
+
+class BenchmarkCache:
+    """进程内单例缓存：读 `<symbols_path>/<region>_benchmarks.csv` 作为可用 benchmark 列表。
+
+    CSV 是权威来源，直接读 symbol 列返回，不扫 features/、不做后缀解析、不做股票过滤。
+    运行时改 CSV 需重启进程生效。
+    """
+
+    _instance: Optional["BenchmarkCache"] = None
+    _lock = Lock()
+
+    def __init__(self) -> None:
+        self._cache: dict[str, list[str]] = {}
+
+    @classmethod
+    def instance(cls) -> "BenchmarkCache":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def scan_region(self, region: str) -> list[str]:
+        """读 `<symbols_path>/<region>_benchmarks.csv`，返回 symbol 列。"""
+        try:
+            ri = get_region_config(region)
+        except KeyError:
+            return []
+        csv_path = Path(ri.symbols_path) / f"{region}_benchmarks.csv"
+        if not csv_path.is_file():
+            return []
+        import csv
+
+        result: list[str] = []
+        with open(csv_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                sym = (row.get("symbol") or "").strip()
+                if sym:
+                    result.append(sym)
+        return result
+
+    def scan_all_benchmarks(self) -> dict[str, list[str]]:
+        """遍历所有已配置 region，读各自的 benchmarks CSV 并缓存结果。"""
+        cache: dict[str, list[str]] = {}
+        for region in get_available_regions():
+            cache[region] = self.scan_region(region)
+        self._cache = cache
+        return cache
+
+    def get_cached_benchmarks(self, region: str) -> list[str]:
+        """读缓存返回 benchmark 列表（不扫盘）。缓存未初始化或 region 未知时返回空列表。"""
+        return list(self._cache.get(region, []))
+
+
+def get_cached_benchmarks(region: str) -> list[str]:
+    """便捷包装：读进程内 BenchmarkCache 单例返回 region 的 benchmark 列表。"""
+    return BenchmarkCache.instance().get_cached_benchmarks(region)
+
+
+def scan_all_benchmarks() -> dict[str, list[str]]:
+    """便捷包装：扫描所有 region 并初始化/刷新进程内 BenchmarkCache。"""
+    return BenchmarkCache.instance().scan_all_benchmarks()

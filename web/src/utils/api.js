@@ -125,6 +125,14 @@ export function getMarkets(region) {
     })
 }
 
+export function getBenchmarks(region) {
+    const query = new URLSearchParams({ region });
+    return request({
+        url: url + "api/benchmarks?" + query.toString(),
+        method: 'get',
+    })
+}
+
 export function getInstruments(region, market) {
     const query = new URLSearchParams({ region, market: market || "all" });
     return request({

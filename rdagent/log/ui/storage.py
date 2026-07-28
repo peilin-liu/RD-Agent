@@ -265,7 +265,7 @@ class WebStorage(Storage):
                 },
             }
         elif "task.meta" in tag:
-            # obj is a dict {"region":..., "market":...} logged at task start
+            # obj is a dict {"region":..., "market":..., "benchmark":...} logged at task start
             content = obj if isinstance(obj, dict) else {}
             data = {
                 "id": id,
@@ -276,6 +276,7 @@ class WebStorage(Storage):
                     "content": {
                         "region": content.get("region", ""),
                         "market": content.get("market", ""),
+                        "benchmark": content.get("benchmark", ""),
                     },
                 },
             }
