@@ -1,3 +1,4 @@
+import os
 from copy import deepcopy
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from rdagent.components.coder.factor_coder.factor import (
     FactorTask,
 )
 from rdagent.core.experiment import Task
+from rdagent.core.region_config import get_region_config
 from rdagent.core.scenario import Scenario
 from rdagent.scenarios.qlib.experiment.utils import get_data_folder_intro
 from rdagent.scenarios.qlib.experiment.workspace import QlibFBWorkspace
@@ -43,6 +45,8 @@ class QlibFactorScenario(Scenario):
         self._rich_style_description = deepcopy(T(".prompts:qlib_factor_rich_style_description").r())
         self._experiment_setting = deepcopy(
             T(".prompts:qlib_factor_experiment_setting").r(
+                market=os.environ.get("QLIB_MARKET")
+                or get_region_config(os.environ.get("QLIB_REGION", "cn")).market,
                 train_start=FACTOR_PROP_SETTING.train_start,
                 train_end=FACTOR_PROP_SETTING.train_end,
                 valid_start=FACTOR_PROP_SETTING.valid_start,
