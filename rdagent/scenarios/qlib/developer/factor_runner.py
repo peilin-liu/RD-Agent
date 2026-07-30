@@ -108,6 +108,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             "qlib_region": region,
             "qlib_market": market,
             "qlib_benchmark": benchmark,
+            "n_jobs": str((os.cpu_count() or 1) * 2),
         }
         if fbps.test_end is not None:
             env_to_use.update({"test_end": fbps.test_end})
