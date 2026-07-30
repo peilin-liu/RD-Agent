@@ -1,0 +1,61 @@
+{
+  "regions": {
+    "cn": {
+      "qlib_data_path": "/data/qlib_data/qlib_bin/market_daily/cn/",
+      "market": "all",
+      "benchmark": "000300.sh",
+      "industry_csv_path": "/data/qlib_data/standard_csv/industry_reference/cn/symbol_industry.csv",
+      "ohlcv_fields": {
+        "open": "$open * $adjclose / $close",
+        "high": "$high * $adjclose / $close",
+        "low": "$low * $adjclose / $close",
+        "close": "$close * $adjclose / $close",
+	"pct_chg": "$pct_chg"
+      },
+      "tech_fields": {
+        "volume": "$volume*$factor/1000000",
+        "amount": "$amount*1000",
+        "turnover": "$turnover*100",
+        "change": "$change",
+        "volume_ratio": "$volume_ratio",
+        "dividends": "$dividends",
+        "total_mv": "$total_mv",
+        "circ_mv": "$circ_mv",
+        "PE": "$pe_ttm",
+        "PB": "$pb",
+        "PS": "$ps_ttm",
+        "DV_TTM": "$dv_ttm",
+        "DV_RATIO": "$dv_ratio",
+        "EARNINGS_YIELD": "1/($pe_ttm+1e-12)",
+        "BOOK_YIELD": "1/($pb+1e-12)",
+        "PE_MA60": "Mean($pe_ttm, 60)",
+        "PB_MA60": "Mean($pb, 60)",
+        "PE_MA120": "Mean($pe_ttm, 120)",
+        "PB_MA120": "Mean($pb, 120)",
+        "PE_DELTA": "$pe_ttm-Ref($pe_ttm, 60)",
+        "PB_DELTA": "$pb-Ref($pb, 60)",
+        "PS_DELTA": "$ps_ttm-Ref($ps_ttm, 60)",
+        "DV_DELTA": "$dv_ttm-Ref($dv_ttm, 60)"
+      },
+      "inject_pit_factors": false,
+      "pit_factors": {
+      },
+      "pit_overlay_fields": []
+    },
+    "hk": {
+      "qlib_data_path": "/data/qlib_data/qlib_bin/market_daily/hk/",
+      "market": "hsi",
+      "benchmark": "HSI",
+      "ohlcv_fields": {},
+      "tech_fields": {}
+    },
+    "us": {
+      "qlib_data_path": "/data/qlib_data/qlib_bin/market_daily/us/",
+      "market": "sp500",
+      "benchmark": "SPX",
+      "ohlcv_fields": {},
+      "tech_fields": {}
+    }
+  },
+  "default_region": "cn"
+}
