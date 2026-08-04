@@ -1,0 +1,73 @@
+# AlphaDivi 自定义因子配置 (YAML)
+# 格式: FACTOR_NAME: qlib表达式
+# 测试时可用 # 注释掉某行临时禁用该因子，无需删除。
+
+# --- 成交量均线比 (amount / 60日均值) ---
+AMOUNT_MA2_R:   "Mean($amount, 2) / Mean($amount, 60)"
+AMOUNT_MA3_R:   "Mean($amount, 3) / Mean($amount, 60)"
+AMOUNT_MA4_R:   "Mean($amount, 4) / Mean($amount, 60)"
+AMOUNT_MA5_R:   "Mean($amount, 5) / Mean($amount, 60)"
+AMOUNT_MA10_R:  "Mean($amount, 10) / Mean($amount, 60)"
+AMOUNT_MA20_R:  "Mean($amount, 20) / Mean($amount, 60)"
+AMOUNT_MA30_R:  "Mean($amount, 30) / Mean($amount, 60)"
+
+# --- 均线偏离度 (相对250日均值) ---
+MA5_DEV250:  "Mean($close, 5) / Mean($close, 250) - 1"
+MA10_DEV250: "Mean($close, 10) / Mean($close, 250) - 1"
+MA20_DEV250: "Mean($close, 20) / Mean($close, 250) - 1"
+MA30_DEV250: "Mean($close, 30) / Mean($close, 250) - 1"
+MA60_DEV250: "Mean($close, 60) / Mean($close, 250) - 1"
+
+# --- 换手率均线 ---
+TURNOVER_MA2:  "Mean($turnover, 2)"
+TURNOVER_MA3:  "Mean($turnover, 3)"
+TURNOVER_MA4:  "Mean($turnover, 4)"
+TURNOVER_MA5:  "Mean($turnover, 5)"
+TURNOVER_MA10: "Mean($turnover, 10)"
+TURNOVER_MA20: "Mean($turnover, 20)"
+TURNOVER_MA30: "Mean($turnover, 30)"
+
+# --- 股息率TTM均线 ---
+DV_TTM_MA2:  "Mean($dv_ttm, 2)"
+DV_TTM_MA3:  "Mean($dv_ttm, 3)"
+DV_TTM_MA4:  "Mean($dv_ttm, 4)"
+DV_TTM_MA5:  "Mean($dv_ttm, 5)"
+DV_TTM_MA10: "Mean($dv_ttm, 10)"
+DV_TTM_MA20: "Mean($dv_ttm, 20)"
+DV_TTM_MA30: "Mean($dv_ttm, 30)"
+
+# --- 股息率均线 ---
+DV_RATIO_MA2:  "Mean($dv_ratio, 2)"
+DV_RATIO_MA3:  "Mean($dv_ratio, 3)"
+DV_RATIO_MA4:  "Mean($dv_ratio, 4)"
+DV_RATIO_MA5:  "Mean($dv_ratio, 5)"
+DV_RATIO_MA10: "Mean($dv_ratio, 10)"
+DV_RATIO_MA20: "Mean($dv_ratio, 20)"
+DV_RATIO_MA30: "Mean($dv_ratio, 30)"
+
+# --- PE_TTM 均线比 (相对120日均值) ---
+PE_MA2_R:   "Mean($pe_ttm, 2) / Mean($pe_ttm, 120)"
+PE_MA3_R:   "Mean($pe_ttm, 3) / Mean($pe_ttm, 120)"
+PE_MA4_R:   "Mean($pe_ttm, 4) / Mean($pe_ttm, 120)"
+PE_MA5_R:   "Mean($pe_ttm, 5) / Mean($pe_ttm, 120)"
+PE_MA10_R:  "Mean($pe_ttm, 10) / Mean($pe_ttm, 120)"
+PE_MA20_R:  "Mean($pe_ttm, 20) / Mean($pe_ttm, 120)"
+PE_MA30_R:  "Mean($pe_ttm, 30) / Mean($pe_ttm, 120)"
+PE_MA60_R:  "Mean($pe_ttm, 60) / Mean($pe_ttm, 120)"
+
+# --- PB 均线比 (相对120日均值) ---
+PB_MA2_R:   "Mean($pb, 2) / Mean($pb, 120)"
+PB_MA3_R:   "Mean($pb, 3) / Mean($pb, 120)"
+PB_MA4_R:   "Mean($pb, 4) / Mean($pb, 120)"
+PB_MA5_R:   "Mean($pb, 5) / Mean($pb, 120)"
+PB_MA10_R:  "Mean($pb, 10) / Mean($pb, 120)"
+PB_MA20_R:  "Mean($pb, 20) / Mean($pb, 120)"
+PB_MA30_R:  "Mean($pb, 30) / Mean($pb, 120)"
+PB_MA60_R:  "Mean($pb, 60) / Mean($pb, 120)"
+
+# --- 估值变动率 ---
+PE_DELTA_R: "($pe_ttm - Ref($pe_ttm, 60)) / Mean($pe_ttm, 60)"
+#PE_DELTA_R: "($pe_ttm - Ref($pe_ttm, 250)) / Mean($pe_ttm, 250)"
+
+PB_DELTA_R: "($pb - Ref($pb, 60)) / Mean($pb, 60)"
+#PE_DELTA_R: "($pe_ttm - Ref($pe_ttm, 250)) / Mean($pe_ttm, 250)"
