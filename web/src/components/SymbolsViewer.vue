@@ -129,6 +129,12 @@ const errorMsg = ref("");
 const adjust = ref(false);
 
 const CORE_FIELDS = ["open", "high", "low", "close"];
+// Lower-panel fields enabled by default on first load (case-insensitive):
+// pe / pb / pe_ttm / pb_ttm.
+const DEFAULT_LOWER_FIELDS = ["pe", "pb", "pe_ttm", "pb_ttm"];
+function isDefaultField(f: string): boolean {
+  return DEFAULT_LOWER_FIELDS.includes(String(f).toLowerCase());
+}
 const maPeriods = [5, 10, 20, 30, 60, 250];
 const enabledMA = ref<Set<number>>(new Set([5, 10, 20]));
 // Fixed color per MA period so the tag and the overlay line share the same
@@ -162,6 +168,9 @@ const enabledIndicators = ref<Set<string>>(new Set());
 const pitFactorFields = ref<string[]>([]);
 const pitOverlayFields = ref<string[]>([]);
 const enabledPit = ref<Set<string>>(new Set());
+// Applied once per region: defaults enabled for the first data load, then
+// user toggles take over.
+const defaultsApplied = ref(false);
 
 // PIT palette (distinct from tech indicator palette). Color by index in
 // pitFactorFields so tag and line match.
@@ -248,6 +257,7 @@ watch(() => props.region, () => {
   pitFactorFields.value = [];
   pitOverlayFields.value = [];
   enabledPit.value = new Set();
+  defaultsApplied.value = false;
   if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
   loadSymbols();
 });
@@ -314,8 +324,23 @@ async function fetchData() {
     indicatorFields.value = tech;
     pitFactorFields.value = pit;
     pitOverlayFields.value = pitOv;
-    const ind = new Set<string>();
-    enabledIndicators.value = ind;
+    // First load of a region: enable valuation defaults (pe/pb/pe_ttm/pb_ttm)
+    // in the lower panel; afterwards preserve the user's toggles.
+    if (!defaultsApplied.value) {
+      defaultsApplied.value = true;
+      const ind = new Set<string>();
+      indicatorFields.value.forEach((f) => { if (isDefaultField(f)) ind.add(f); });
+      enabledIndicators.value = ind;
+      const pitSel = new Set<string>();
+      pitFactorFields.value.forEach((f) => { if (isDefaultField(f) && !ind.has(f)) pitSel.add(f); });
+      enabledPit.value = pitSel;
+      // PIT factors are opt-in per request; refetch once so their columns exist.
+      const pitMissing = Array.from(pitSel).some((k) => !(res.columns || []).includes(k));
+      if (pitMissing) {
+        await fetchData();
+        return;
+      }
+    }
     await nextTick();
     renderChart();
   } catch (e: any) {

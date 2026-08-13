@@ -40,7 +40,10 @@
       "inject_pit_factors": false,
       "pit_factors": {
       },
-      "pit_overlay_fields": []
+      "pit_overlay_fields": [],
+      "predictions": {
+        "csi1000": "/data/win_share/csi1000_valueback"
+      }
     },
     "hk": {
       "qlib_data_path": "/data/qlib_data/qlib_bin/market_daily/hk/",

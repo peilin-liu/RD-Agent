@@ -3,6 +3,7 @@ import os
 import random
 import re
 import threading
+import csv
 import traceback
 from urllib.parse import quote as url_quote
 from collections import defaultdict
@@ -880,6 +881,88 @@ def _num(v) -> float | None:
     return None if math.isnan(f) else f
 
 
+# ---------- Prediction scores ----------
+# Prediction CSVs hold date,rank,code,name,score,action per symbol. The
+# market→path mapping comes from region config `predictions` (see
+# rdagent/core/region_config.py); unconfigured markets fall back to the legacy
+# convention <PREDICTION_ROOT>/<market>_valueback/predictions_YYYY-MM-DD.csv.
+
+PREDICTION_ROOT = Path(os.environ.get("PREDICTION_ROOT", "/data/win_share"))
+_pred_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+_pred_lock = threading.Lock()
+_PRED_FILE_RE = re.compile(r"^predictions_(\d{4}-\d{2}-\d{2})\.csv$", re.IGNORECASE)
+
+
+def _predictions_date(path: Path) -> str | None:
+    """Infer the prediction date from the filename (predictions_YYYY-MM-DD.csv)."""
+    m = _PRED_FILE_RE.match(path.name)
+    return m.group(1) if m else None
+
+
+def _load_predictions(
+    market: str,
+    prediction_dirs: dict | None = None,
+    as_of: str | None = None,
+) -> dict | None:
+    """Load the predictions CSV for a market, matched to a snapshot date.
+
+    Source resolution: region config `predictions` mapping (dir or csv file)
+    first, then <PREDICTION_ROOT>/<market>_valueback/. File date is inferred
+    from the filename (predictions_YYYY-MM-DD.csv). `as_of` (the snapshot date)
+    selects the latest file whose date <= as_of, so the scores shown correspond
+    to the date being viewed; without `as_of` the latest file is used. Returns
+    {"date": "YYYY-MM-DD", "rows": {"CODE": {"rank", "score", "action"}}} or
+    None when no data exists. Cached per (market, path); re-reads the file only
+    when its mtime changes.
+    """
+    src: Path | None = None
+    if prediction_dirs and market in prediction_dirs:
+        src = Path(str(prediction_dirs[market])).expanduser()
+    if src is None or not src.exists():
+        src = PREDICTION_ROOT / f"{market}_valueback"
+    if src.is_file():
+        latest = src
+    elif src.is_dir():
+        dated = sorted(
+            (p for p in src.glob("predictions_*.csv") if _predictions_date(p)),
+            key=lambda p: _predictions_date(p) or "",
+        )
+        if not dated:
+            return None
+        if as_of:
+            eligible = [p for p in dated if (_predictions_date(p) or "") <= as_of]
+            if not eligible:
+                return None
+            latest = eligible[-1]
+        else:
+            latest = dated[-1]
+    else:
+        return None
+    key = (market, str(latest))
+    try:
+        mtime = latest.stat().st_mtime
+    except OSError:
+        return None
+    with _pred_lock:
+        cached = _pred_cache.get(key)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        rows: dict[str, dict] = {}
+        with open(latest, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                code = (row.get("code") or "").strip().upper()
+                if not code:
+                    continue
+                rows[code] = {
+                    "rank": _num(row.get("rank")),
+                    "score": _num(row.get("score")),
+                    "action": (row.get("action") or "").strip(),
+                }
+        data = {"date": _predictions_date(latest) or latest.stem.replace("predictions_", ""), "rows": rows}
+        _pred_cache[key] = (mtime, data)
+        return data
+
+
 class QlibDataProvider:
     def __init__(self, region: str):
         from rdagent.core.region_config import get_region_config
@@ -892,6 +975,7 @@ class QlibDataProvider:
         self.tech_fields = ri.tech_fields if ri.tech_fields else {"volume": "$volume"}
         self.pit_factors = ri.pit_factors if ri.pit_factors else {}
         self.pit_overlay_fields = ri.pit_overlay_fields if ri.pit_overlay_fields else []
+        self.prediction_dirs = ri.predictions if ri.predictions else {}
         self._symbols: list[dict] = []
         self._verify_data_dir()
         self._init_qlib()
@@ -1354,9 +1438,32 @@ def get_market_snapshot(region: str):
     except Exception as e:
         import traceback as tb
         return jsonify({"error": str(e), "trace": tb.format_exc()}), 500
+    # Join prediction scores (region config `predictions` mapping, fallback to
+    # <PREDICTION_ROOT>/<market>_valueback). The file date is inferred from the
+    # filename and matched to the snapshot date (latest file with date <= the
+    # viewed date). Symbols without a prediction keep null pred_* fields.
+    predictions = None
+    if market and market != "all":
+        pred = _load_predictions(market, provider.prediction_dirs, as_of=date)
+        if pred:
+            joined = 0
+            for row in rows:
+                p = pred["rows"].get((row.get("symbol") or "").upper())
+                if p:
+                    row["pred_rank"] = p["rank"]
+                    row["pred_score"] = p["score"]
+                    row["pred_action"] = p["action"]
+                    joined += 1
+            predictions = {
+                "market": market,
+                "date": pred["date"],
+                "total": len(pred["rows"]),
+                "joined": joined,
+            }
     return jsonify({
         "region": region, "market": market, "date": date,
         "symbols_count": len(rows), "data": rows,
+        "predictions": predictions,
     }), 200
 
 

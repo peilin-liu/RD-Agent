@@ -33,6 +33,13 @@
         clearable
         style="width: 180px; margin-left: 12px"
       />
+      <el-select-v2
+        v-if="predictions"
+        v-model="sortChoice"
+        :options="sortOptions"
+        style="width: 150px; margin-left: 12px"
+        @change="onSortChoice"
+      />
       <el-button type="primary" @click="fetchData" :loading="loading" style="margin-left: 12px">刷新</el-button>
       <el-button type="primary" plain @click="emit('back')" size="small">← 返回单股</el-button>
       <span v-if="errorMsg" class="ms-error">{{ errorMsg }}</span>
@@ -42,6 +49,7 @@
       <span class="ms-label">{{ filterred.length }} / {{ rows.length }} 只</span>
       <span class="ms-label">上涨 <span style="color: #ef232a">{{ upCount }}</span></span>
       <span class="ms-label">下跌 <span style="color: #14b143">{{ downCount }}</span></span>
+      <span class="ms-label" v-if="predictions">预测 {{ predictions.market }} · {{ predictions.date }} · 已关联 {{ predictions.joined }}/{{ predictions.total }} 只</span>
     </div>
 
     <el-table-v2
@@ -75,10 +83,13 @@ const selectedMarket = ref<string>("csi300");
 const selectedDate = ref<string>("");
 const selectedIndustry = ref<string>("");
 const searchText = ref<string>("");
+const lastMarket = ref<string>("");
 const rows = ref<any[]>([]);
 const loading = ref(false);
 const errorMsg = ref("");
 const tableWidth = ref(1100);
+// Prediction join metadata: { market, date, total, joined } or null.
+const predictions = ref<any>(null);
 
 const marketOptions = computed(() =>
   markets.value.map(m => ({ label: m, value: m }))
@@ -129,12 +140,36 @@ const fmtPct = (v: any) => {
   const cls = n > 0 ? "ms-up" : n < 0 ? "ms-down" : "";
   return h("span", { class: cls }, `${n > 0 ? "+" : ""}${n.toFixed(2)}%`);
 };
+const fmtRank = (v: any) => {
+  if (v == null) return "-";
+  const n = Number(v);
+  if (isNaN(n)) return "-";
+  return String(n);
+};
 
 // el-table-v2 native sort state: { key, order }. Clicking a sortable column
 // header fires @column-sort with { key, order }. We bind :sort-by to this ref.
 const sortByState = ref<{ key: string; order: "asc" | "desc" }>({ key: "turnover", order: "desc" });
+// Sort-choice dropdown (shown when predictions are joined). Values mirror the
+// sortable column keys; order per choice: score sorts descending, rank ascending.
+const sortChoice = ref<string>("turnover");
+const SORT_CHOICES: Record<string, { key: string; order: "asc" | "desc" }> = {
+  pred_rank: { key: "pred_rank", order: "asc" },
+  pct_chg: { key: "pct_chg", order: "desc" },
+  turnover: { key: "turnover", order: "desc" },
+};
+const sortOptions = computed(() => [
+  { label: "按排名", value: "pred_rank" },
+  { label: "按涨跌幅", value: "pct_chg" },
+  { label: "按换手率", value: "turnover" },
+]);
+function onSortChoice(v: string) {
+  const s = SORT_CHOICES[v] || SORT_CHOICES.turnover;
+  sortByState.value = { ...s };
+}
 function onColumnSort({ key, order }: { key: string; order: "asc" | "desc" }) {
   sortByState.value = { key, order };
+  if (key in SORT_CHOICES) sortChoice.value = key;
 }
 
 const sortedRows = computed(() => {
@@ -157,6 +192,9 @@ const displayRows = sortedRows;
 const columns = computed<any[]>(() => [
   { key: "symbol", title: "Symbol", width: 110, dataKey: "symbol", sortable: true, cellRenderer: ({ cellData }: any) => cellData },
   { key: "name", title: "名称", width: 110, dataKey: "name" },
+  ...(predictions.value ? [
+    { key: "pred_rank", title: "排名", width: 90, dataKey: "pred_rank", sortable: true, cellRenderer: ({ cellData }: any) => fmtRank(cellData) },
+  ] : []),
   { key: "industry_code", title: "行业", width: 70, dataKey: "industry_code" },
   { key: "pct_chg", title: "涨跌幅", width: 100, dataKey: "pct_chg",
     sortable: true, cellRenderer: ({ cellData }: any) => fmtPct(cellData) },
@@ -201,10 +239,20 @@ async function fetchData() {
   try {
     const res = await getMarketSnapshot(props.region, selectedMarket.value, selectedDate.value || undefined);
     rows.value = Array.isArray(res.data) ? res.data : [];
+    predictions.value = (res as any).predictions || null;
     if (res.date) selectedDate.value = res.date;
+    // Default sort on market switch: by prediction rank when a score file is
+    // joined for the selected market, otherwise by turnover. Manual sorts
+    // survive date changes / refresh within the same market.
+    if (selectedMarket.value !== lastMarket.value) {
+      lastMarket.value = selectedMarket.value;
+      sortChoice.value = predictions.value ? "pred_rank" : "turnover";
+      onSortChoice(sortChoice.value);
+    }
   } catch (e: any) {
     errorMsg.value = "Failed to load snapshot: " + (e?.message || e);
     rows.value = [];
+    predictions.value = null;
   } finally {
     loading.value = false;
   }

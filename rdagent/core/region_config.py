@@ -41,7 +41,10 @@ Format:
         "PE_MA120": "Mean($pe_ttm, 120)",
         "PB_MA120": "Mean($pb, 120)"
       },
-      "pit_overlay_fields": ["PE_MA60", "PB_MA60", "PE_MA120", "PB_MA120"]
+      "pit_overlay_fields": ["PE_MA60", "PB_MA60", "PE_MA120", "PB_MA120"],
+      "predictions": {
+        "csi1000": "/data/win_share/csi1000_valueback"
+      }
     },
     "hk": {"qlib_data_path": "/path/to/hk/", "market": "hsi", "benchmark": "HSI"},
     "us": {"qlib_data_path": "/path/to/us/", "market": "sp500", "benchmark": "SPX"}
@@ -71,6 +74,14 @@ data. Define PE/PB/PS etc. here — do NOT hardcode them in source.
 the K-line chart in the data-explorer UI (right-side secondary axis, e.g.
 smoothed PE_MA60/PB_MA60). Factors NOT in this list render in the lower
 indicator panel. Keys must exist in `pit_factors`.
+
+`predictions` (optional): map of market name → directory (or single CSV file)
+holding prediction-score files. The market-snapshot UI joins the prediction
+file whose date (inferred from the filename `predictions_YYYY-MM-DD.csv`) is
+the latest one <= the snapshot date being viewed, and can sort by rank. When a
+market has no entry here, it falls back to the legacy convention
+`<PREDICTION_ROOT>/<market>_valueback/` (PREDICTION_ROOT defaults to
+/data/win_share).
 """
 
 import json
@@ -121,6 +132,9 @@ class RegionInfo:
     inject_pit_factors: bool = False
     pit_factors: dict = field(default_factory=dict)
     pit_overlay_fields: list = field(default_factory=list)
+    # market -> prediction scores dir/file. The market-snapshot UI joins the
+    # latest predictions_*.csv from the configured path into the index view.
+    predictions: dict = field(default_factory=dict)
 
 
 def _load_config() -> dict:
@@ -166,6 +180,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
         pit_factors = _normalize_fields(ri.get("pit_factors"))
         inject_pit = bool(ri.get("inject_pit_factors", False))
         pit_overlay = [str(k) for k in ri.get("pit_overlay_fields", []) if str(k) in pit_factors]
+        predictions = {str(k): _resolve_path(str(v)) for k, v in (ri.get("predictions") or {}).items()}
         return RegionInfo(
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
@@ -177,6 +192,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             inject_pit_factors=inject_pit,
             pit_factors=pit_factors,
             pit_overlay_fields=pit_overlay,
+            predictions=predictions,
         )
 
     if region in _DEFAULT_REGIONS:

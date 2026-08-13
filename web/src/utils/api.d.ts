@@ -36,7 +36,16 @@ declare module '@/utils/api' {
       PB: number | null;
       DV_RATIO: number | null;
       DV_TTM: number | null;
+      pred_rank?: number | null;
+      pred_score?: number | null;
+      pred_action?: string;
     }>;
+    predictions?: {
+      market: string;
+      date: string;
+      total: number;
+      joined: number;
+    } | null;
     error?: string;
   }>;
   export function setRegion(region: string): Promise<any>;
