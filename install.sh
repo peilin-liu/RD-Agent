@@ -84,7 +84,7 @@ Wants=network-online.target
 Type=simple
 Environment=RUNNING_TIMEOUT_PERIOD=10800
 ExecStart=${RDAGENT_BIN} server_ui
-WorkingDirectory=${HOME}
+WorkingDirectory=${HOME}/rdagent
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${LOG_FILE}
