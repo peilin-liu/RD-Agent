@@ -18,6 +18,14 @@ MA20_DEV250: "Mean($close, 20) / Mean($close, 250) - 1"
 MA30_DEV250: "Mean($close, 30) / Mean($close, 250) - 1"
 MA60_DEV250: "Mean($close, 60) / Mean($close, 250) - 1"
 
+# --- 均线偏离度 (相对500日均值) ---
+MA5_DEV500:  "Mean($close, 5) / Mean($close, 500) - 1"
+MA10_DEV500: "Mean($close, 10) / Mean($close, 500) - 1"
+MA20_DEV500: "Mean($close, 20) / Mean($close, 500) - 1"
+MA30_DEV500: "Mean($close, 30) / Mean($close, 500) - 1"
+MA60_DEV500: "Mean($close, 60) / Mean($close, 500) - 1"
+
+
 # --- 换手率均线 ---
 TURNOVER_MA2:  "Mean($turnover, 2)"
 TURNOVER_MA3:  "Mean($turnover, 3)"
@@ -27,6 +35,7 @@ TURNOVER_MA10: "Mean($turnover, 10)"
 TURNOVER_MA20: "Mean($turnover, 20)"
 TURNOVER_MA30: "Mean($turnover, 30)"
 
+# DV_RANK: "Rank($dv_ttm,0)"
 # --- 股息率TTM均线 ---
 DV_TTM_MA2:  "Mean($dv_ttm, 2)"
 DV_TTM_MA3:  "Mean($dv_ttm, 3)"
@@ -44,6 +53,9 @@ DV_RATIO_MA5:  "Mean($dv_ratio, 5)"
 DV_RATIO_MA10: "Mean($dv_ratio, 10)"
 DV_RATIO_MA20: "Mean($dv_ratio, 20)"
 DV_RATIO_MA30: "Mean($dv_ratio, 30)"
+
+#DIFF_EP: "(1 / Max($pe_median, 0.1) - 1 / ($pe_ttm + 1e-5))"
+#DIFF_EP: "If($pe_ttm > 2, Log($pe_ttm / Max($pe_median, 0.1)), 5)"
 
 # --- PE_TTM 均线比 (相对120日均值) ---
 PE_MA2_R:   "Mean($pe_ttm, 2) / Mean($pe_ttm, 120)"
@@ -71,3 +83,5 @@ PE_DELTA_R: "($pe_ttm - Ref($pe_ttm, 60)) / Mean($pe_ttm, 60)"
 
 PB_DELTA_R: "($pb - Ref($pb, 60)) / Mean($pb, 60)"
 #PE_DELTA_R: "($pe_ttm - Ref($pe_ttm, 250)) / Mean($pe_ttm, 250)"
+
+#REBOUND: "And(Gt($low, Min(Ref($low, 1), 5)), And(Gt($close, Mean($close, 5)),Gt(Mean($close, 5), Mean($close, 10))))"
