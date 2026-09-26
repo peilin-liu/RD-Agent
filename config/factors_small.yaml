@@ -3,30 +3,30 @@
 # 测试时可用 # 注释掉某行临时禁用该因子，无需删除。
 
 # --- 成交量均线比 (amount / 60日均值) ---
-AMOUNT_MA5_R:  "Mean($amount, 5) / (Mean($amount, 60) + 1e-6)"
+AMOUNT_MA5_R:  "Mean($amount, 5) / (Mean($amount, 60) + 1e-12)"
 
 
 # --- 均线偏离度，反转 (相对500日均值) ---
-MA5_DEV20_R: "Mean($close, 5) / (Mean($close, 20) + 1e-6)"
-MA5_DEV60_R: "Mean($close, 5) / (Mean($close, 60) + 1e-6)"
-MA60_DEV250_R: "Mean($close, 60) / (Mean($close, 250) + 1e-6)"
-MA60_DEV500_R: "Mean($close, 60) / (Mean($close, 500) + 1e-6)"
+MA5_DEV20_R: "Mean($close, 5) / (Mean($close, 20) + 1e-12)"
+MA5_DEV60_R: "Mean($close, 5) / (Mean($close, 60) + 1e-12)"
+MA60_DEV250_R: "Mean($close, 60) / (Mean($close, 250) + 1e-12)"
+MA60_DEV500_R: "Mean($close, 60) / (Mean($close, 500) + 1e-12)"
 
 # --- 换手率偏离度 ---
-TURNOVER_MA5_DEV60_R:  "Mean($turnover, 5)/ (Mean($turnover, 60) + 1e-6)"
+TURNOVER_MA5_DEV60_R:  "Mean($turnover, 5)/ (Mean($turnover, 60) + 1e-12)"
 
 # --- 股息率TTM均线 ---
 DV_TTM_MA60: "Mean($dv_ttm, 60)"
 
 # --- PE_TTM 盈利收益率均线相对变化 (EY=1/PE_TTM, 相对120日均值) ---
-#PE_MA5_R:   "Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 120), 1e-6)) - Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 5), 1e-6))"
-#PE_MA20_R:  "Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 120), 1e-6)) - Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 20), 1e-6))"
-#PE_MA60_R:  "Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 120), 1e-6)) - Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 60), 1e-6))"
+#PE_MA5_R:   "Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 120), 1e-12)) - Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 5), 1e-12))"
+#PE_MA20_R:  "Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 120), 1e-12)) - Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 20), 1e-12))"
+#PE_MA60_R:  "Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 120), 1e-12)) - Log(Greater(Mean(1.0 / Greater($pe_ttm, 0.1), 60), 1e-12))"
 
 # --- PB 账面市值比均线相对变化 (BP=1/PB, 相对120日均值) ---
-#PB_MA5_R:   "Log(Greater(Mean(1.0 / Greater($pb, 0.1), 120), 1e-6)) - Log(Greater(Mean(1.0 / Greater($pb, 0.1), 5), 1e-6))"
-#PB_MA20_R:  "Log(Greater(Mean(1.0 / Greater($pb, 0.1), 120), 1e-6)) - Log(Greater(Mean(1.0 / Greater($pb, 0.1), 20), 1e-6))"
-#PB_MA60_R:  "Log(Greater(Mean(1.0 / Greater($pb, 0.1), 120), 1e-6)) - Log(Greater(Mean(1.0 / Greater($pb, 0.1), 60), 1e-6))"
+#PB_MA5_R:   "Log(Greater(Mean(1.0 / Greater($pb, 0.1), 120), 1e-12)) - Log(Greater(Mean(1.0 / Greater($pb, 0.1), 5), 1e-12))"
+#PB_MA20_R:  "Log(Greater(Mean(1.0 / Greater($pb, 0.1), 120), 1e-12)) - Log(Greater(Mean(1.0 / Greater($pb, 0.1), 20), 1e-12))"
+#PB_MA60_R:  "Log(Greater(Mean(1.0 / Greater($pb, 0.1), 120), 1e-12)) - Log(Greater(Mean(1.0 / Greater($pb, 0.1), 60), 1e-12))"
 
 # --- 估值变动率 (基于 1/PE 盈利收益率增量 ΔEP & 1/PB 账面市值比增量 ΔBP) ---
 PE_DELTA_R: "(1.0 / Greater($pe_ttm, 0.2)) - (1.0 / Greater(Ref($pe_ttm, 60), 0.2))"
@@ -37,11 +37,17 @@ PB_DELTA_R: "(1.0 / Greater($pb, 0.2)) - (1.0 / Greater(Ref($pb, 60), 0.2))"
 MA_BAND_5_20_60: "(Greater(Greater(Mean($close, 5), Mean($close, 20)), Mean($close, 60)) - Less(Less(Mean($close, 5), Mean($close, 20)), Mean($close, 60))) / ((Mean($close, 5) + Mean($close, 20) + Mean($close, 60)) / 3)"
 
 # 2. 低位地量蛰伏度 (全截面连续平滑: 处于区间低位程度 * 60日均额相对5日均额缩量比，缩量越极致得分越高)
-#LOW_POS_SHRINK: "(Mean($amount, 60) / (Mean($amount, 5) + 1e-6)) * (1 - ($close - Min($low, 250)) / (Max($high, 250) - Min($low, 250) + 1e-6))"
-LOW_POSITION_250: "($close - Min($low, 250)) / ((Max($high, 250) - Min($low, 250)) + 1e-6)"
+#LOW_POS_SHRINK: "(Mean($amount, 60) / (Mean($amount, 5) + 1e-12)) * (1 - ($close - Min($low, 250)) / (Max($high, 250) - Min($low, 250) + 1e-12))"
+LOW_POSITION_250: "($close - Min($low, 250)) / ((Max($high, 250) - Min($low, 250)) + 1e-12)"
 TURNOVER_GAP_HIGH_250: "((Max($turnover, 250) - $turnover)) / Max($turnover, 250)"
-TURNOVER_GAP_LOW_250: "($turnover - Min($turnover, 250)) / (Min($turnover, 250) + 1e-6)"
+TURNOVER_GAP_LOW_250: "($turnover - Min($turnover, 250)) / (Min($turnover, 250) + 1e-12)"
 
 # 3. 低位高安全边际 (全截面连续平滑: 股息率/PB安全垫 * 区间低位深度，越低位且估值越便宜得分越高)
 DV_PB_SAFETY: "$dv_ttm / Greater($pb, 0.2)"
+
+# 4. 价格变化的导数
+ROC_ACC_M5_10: "(Ref(Mean($close, 5), 20) / Ref(Mean($close, 5), 10)) - (Ref(Mean($close, 5), 10) / Mean($close, 5))"
+ROC_ACC_M20_10: "(Ref(Mean($close, 20), 20) / Ref(Mean($close, 20), 10)) - (Ref(Mean($close, 20), 10) / Mean($close, 20))"
+#ROC_ACC_M60_10: "(Ref(Mean($close, 60), 20) / Ref(Mean($close, 60), 10)) - (Ref(Mean($close, 60), 10) / Mean($close, 60))"
+#ROC_ACC_60_30: "(Ref($close, 60) / Ref($close, 30)) - (Ref($close, 30) / $close)"
 
