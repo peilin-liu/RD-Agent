@@ -1,0 +1,8 @@
+# KAMA factors on the normalized back-adjusted $close series.
+# Base fields are dumped by technical_daily before this file is used in training.
+
+KAMA_REL_5: "$kama_er5_fast2_slow30/$close"
+KAMA_REL_10: "$kama_er10_fast2_slow30/$close"
+KAMA_REL_20: "$kama_er20_fast2_slow30/$close"
+KAMA_X_5_10: "$kama_er5_fast2_slow30/$kama_er10_fast2_slow30"
+KAMA_X_10_20: "$kama_er10_fast2_slow30/$kama_er20_fast2_slow30"

@@ -1,0 +1,58 @@
+# 筹码成本因子（AlphaDivi / Qlib 平面映射）
+# 格式：FACTOR_NAME: "Qlib 表达式"；窗口单位为交易日，Ref 仅使用正向历史滞后。
+# 数据源：market_daily/cn 中链接的 chips_daily/cn 字段；筹码数据缺失时不填充为 0。
+# 价格字段为供应商前复权口径，与 Qlib $close 的尺度不同，因此不直接混算。
+# 同日成本比值可抵消共同复权缩放；不使用未来复权因子，也不跨日直接比较成本价格。
+# 所有因子均包含当日数据，应在当日数据可用后使用；历史源数据是否修订仍需单独核验。
+
+# 获利筹码：winner_rate 单位为百分比，先限制到 0–100，再统一换算为 0–1。
+# 源数据存在 100.05 等越界值，仅在因子计算时截断；不改写原始数据，空值仍为空。
+# DELTA / DEV 的单位为比例差；例如 0.1 表示增加 10 个百分点。
+# 当前获利筹码比例
+# COST_WINNER_RATIO: "Less(Greater($winner_rate, 0), 100) / 100"
+# 5 日平均获利比例
+#COST_WINNER_MA5: "Mean(Less(Greater($winner_rate, 0), 100), 5) / 100"
+# 当前比例偏离 20 日均值
+COST_WINNER_DEV20: "(Less(Greater($winner_rate, 0), 100) - Mean(Less(Greater($winner_rate, 0), 100), 20)) / 100"
+# 20 日获利比例波动, 有正向收益，但回撤明显变大了
+# COST_WINNER_STD20: "Std(Less(Greater($winner_rate, 0), 100), 20) / 100"
+
+# 成本分布：均以同日筹码价格归一化，不含绝对股价尺度。
+# 中间 70% 筹码成本带宽；越小越集中
+COST_WIDTH70: "($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12)"
+# 中间 90% 筹码成本带宽；越小越集中
+#COST_WIDTH90: "($cost_95pct - $cost_5pct) / (Abs($cost_50pct) + 1e-12)"
+# 平均持仓成本相对成本中位数的偏离；不是普通价格均线
+COST_MEAN_MEDIAN_GAP: "$weight_avg / ($cost_50pct + 1e-12) - 1"
+# 分位数不对称度；正值表示上半区间更宽，零带宽时为 0  有正向收益，但回撤明显变大了
+# COST_ASYM90: "($cost_95pct + $cost_5pct - 2 * $cost_50pct) / ($cost_95pct - $cost_5pct + 1e-12)"
+
+# 分布变化：先计算同日无量纲带宽，再进行时间序列运算。
+# DELTA 为带宽差；负值表示成本分布较此前收窄。
+# 70% 带宽的 20 日均值
+#COST_WIDTH70_MA20: "Mean(($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12), 20)"
+# 70% 带宽相比 5 个交易日前的变化
+#COST_WIDTH70_DELTA5: "(($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12)) - Ref(($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12), 5)"
+# 70% 带宽相比 20 个交易日前的变化
+#COST_WIDTH70_DELTA20: "(($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12)) - Ref(($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12), 20)"
+# 90% 带宽相比 20 个交易日前的变化
+#COST_WIDTH90_DELTA20: "(($cost_95pct - $cost_5pct) / (Abs($cost_50pct) + 1e-12)) - Ref(($cost_95pct - $cost_5pct) / (Abs($cost_50pct) + 1e-12), 20)"
+
+# 获利状态与集中程度的组合：使用 1 + 带宽，避免极窄分布造成倒数爆炸。
+# 以下是特征定义，预测方向需要通过训练和回测确定。
+# 筹码集中且获利比例高时较大
+COST_NARROW_WINNER: "(Less(Greater($winner_rate, 0), 100) / 100) / (1 + (($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12)))"
+# 筹码集中且未获利比例高时较大
+COST_NARROW_NONWINNER: "(1 - Less(Greater($winner_rate, 0), 100) / 100) / (1 + (($cost_85pct - $cost_15pct) / (Abs($cost_50pct) + 1e-12)))"
+
+# 平均成本在历史价格区间中的相对位置。
+COST_MEAN_HIST_POS: "($weight_avg - $his_low) / ($his_high - $his_low + 1e-12)"
+# 历史价格区间相对于当前成本中位数的宽度。
+COST_HIST_SPAN: "($his_high - $his_low) / (Abs($cost_50pct) + 1e-12)"
+
+# 获利比例在历史高低区间内的相对位置（包含当日，窗口单位为交易日）。
+# 公式：(当前获利比例 - 窗口最低值) / (窗口最高值 - 窗口最低值 + 1e-12)。
+# 0 表示窗口低位，接近 1 表示窗口高位；最高值等于最低值时取 0。
+# 直接使用源数据中的获利比例；历史不足窗口长度时使用已有历史。
+COST_WINNER_POS250: "($winner_rate - Min($winner_rate, 250)) / (Max($winner_rate, 250) - Min($winner_rate, 250) + 1e-12)"
+COST_WINNER_POS120: "($winner_rate - Min($winner_rate, 120)) / (Max($winner_rate, 120) - Min($winner_rate, 120) + 1e-12)"

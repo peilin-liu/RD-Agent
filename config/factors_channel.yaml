@@ -1,0 +1,40 @@
+# 1. 均线方向（有方向：标准化单日均线导数，正值上行，负值下行）
+MA20_SLOPE_2:       "(Mean($close, 20) - Ref(Mean($close, 20), 1)) / (Mean($close, 20) + 1e-12)"
+MA20_SLOPE_2_LAG5:  "(Ref(Mean($close, 20), 5)  - Ref(Mean($close, 20), 6))/ (Ref(Mean($close, 20), 5) + 1e-12)"
+MA20_SLOPE_2_LAG10: "(Ref(Mean($close, 20), 10)  - Ref(Mean($close, 20), 11))/ (Ref(Mean($close, 20), 10) + 1e-12)"
+
+MA60_SLOPE_2:       "(Mean($close, 60) - Ref(Mean($close, 60), 1)) / (Mean($close, 60) + 1e-12)"
+MA60_SLOPE_2_LAG5:  "(Ref(Mean($close, 60), 5)  - Ref(Mean($close, 60), 6))/ (Ref(Mean($close, 60), 5) + 1e-12)"
+MA60_SLOPE_2_LAG10: "(Ref(Mean($close, 60), 10)  - Ref(Mean($close, 60), 11))/ (Ref(Mean($close, 60), 10) + 1e-12)"
+
+
+MA5_MA20_DIFF:  "(Mean($close, 5) - Mean($close, 20)) / (Mean($close, 20) + 1e-12)"
+MA20_MA60_DIFF: "(Mean($close, 20) - Mean($close, 60)) / (Mean($close, 60) + 1e-12)"
+
+
+MA5_MA20_DIFF_LAG5:  "(Ref(Mean($close, 5), 5) - Ref(Mean($close, 20), 5)) / (Ref(Mean($close, 20), 5) + 1e-12)"
+MA20_MA60_DIFF_LAG5: "(Ref(Mean($close, 20), 5) - Ref(Mean($close, 60), 5)) / (Ref(Mean($close, 60), 5) + 1e-12)"
+
+
+#MA250_SLOPE_2:       "(Mean($close, 250) - Ref(Mean($close, 250), 1)) / (Mean($close, 250) + 1e-12)"
+#MA250_SLOPE_2_LAG5:  "(Ref(Mean($close, 250), 5)  - Ref(Mean($close, 250), 6))/ (Ref(Mean($close, 250), 5) + 1e-12)"
+#MA250_SLOPE_2_LAG10: "(Ref(Mean($close, 250), 10)  - Ref(Mean($close, 250), 11))/ (Ref(Mean($close, 250), 10) + 1e-12)"
+
+#MA500_SLOPE_2:       "(Mean($close, 500) - Ref(Mean($close, 500), 1)) / (Mean($close, 500) + 1e-12)"
+#MA500_SLOPE_2_LAG5:  "(Ref(Mean($close, 500), 5)  - Ref(Mean($close, 500), 6))/ (Ref(Mean($close, 500), 5) + 1e-12)"
+#MA500_SLOPE_2_LAG10: "(Ref(Mean($close, 500), 10)  - Ref(Mean($close, 500), 11))/ (Ref(Mean($close, 500), 10) + 1e-12)"
+
+
+
+#BETA250: "Slope($close, 250)/$close"
+#BETA500: "Slope($close, 500)/$close"
+
+# 2. 均线波动效率（路径效率越接近 1，均线越单向平滑；越接近 0，来回震荡越多）
+#MA10_VOL_EFF_10: "Abs(Sum(Delta(Mean($close, 10), 1), 10)) / (Sum(Abs(Delta(Mean($close, 10), 1)), 10) + 1e-12)"
+#MA20_VOL_EFF_20: "Abs(Sum(Delta(Mean($close, 20), 1), 20)) / (Sum(Abs(Delta(Mean($close, 20), 1)), 20) + 1e-12)"
+
+# 3. 平行度/管道稳定性（无方向：越接近 0 说明均线间距越稳定/平行）
+#"MA_Parallel_20_60": "Std(Mean($close, 20) / Mean($close, 60), 20)"
+
+# 4. 趋势流畅度与噪声（无方向：Rsquare 越接近 1，走势越像一条直线通道）
+#"Channel_Linearity": "Rsquare(Mean($close, 20), 20)"
