@@ -41,11 +41,12 @@
         @change="onSortChoice"
       />
       <el-button type="primary" @click="fetchData" :loading="loading" style="margin-left: 12px">刷新</el-button>
-      <el-button type="primary" plain @click="emit('back')" size="small">← 返回单股</el-button>
+      <el-button tag="a" :href="singleHref" type="primary" plain @click.left.exact.prevent="emit('back', selectedMarket)" size="small">← 返回单股</el-button>
       <span v-if="errorMsg" class="ms-error">{{ errorMsg }}</span>
     </div>
 
     <div class="ms-stats" v-if="!loading && rows.length">
+      <span class="ms-label">价格：不复权</span>
       <span class="ms-label">{{ filterred.length }} / {{ rows.length }} 只</span>
       <span class="ms-label">上涨 <span style="color: #ef232a">{{ upCount }}</span></span>
       <span class="ms-label">下跌 <span style="color: #14b143">{{ downCount }}</span></span>
@@ -71,15 +72,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, h } from "vue";
 import { getMarkets, getMarketSnapshot } from "@/utils/api";
+import { useRoute, useRouter } from "vue-router";
+import { formatSnapshotNumber as fmt } from "@/utils/marketSnapshot";
 
 const props = defineProps<{ region: string; latestDate?: string }>();
 const emit = defineEmits<{
   (e: "selectSymbol", sym: string): void;
-  (e: "back"): void;
+  (e: "back", market: string): void;
 }>();
 
+const route = useRoute();
+const router = useRouter();
 const markets = ref<string[]>([]);
-const selectedMarket = ref<string>("csi300");
+const selectedMarket = ref<string>((route.query.market as string) || "csi300");
+const singleHref = computed(() => router.resolve({
+  path: route.path,
+  query: { ...route.query, panel: "4", view: "single", market: selectedMarket.value },
+}).href);
 const selectedDate = ref<string>("");
 const selectedIndustry = ref<string>("");
 const searchText = ref<string>("");
@@ -125,14 +134,6 @@ const filterred = computed(() => {
 const upCount = computed(() => filterred.value.filter(r => r.pct_chg != null && r.pct_chg > 0).length);
 const downCount = computed(() => filterred.value.filter(r => r.pct_chg != null && r.pct_chg < 0).length);
 
-const fmt = (v: any, digits = 2) => {
-  if (v == null) return "-";
-  const n = Number(v);
-  if (isNaN(n)) return "-";
-  if (Math.abs(n) >= 1e8) return (n / 1e8).toFixed(2) + "亿";
-  if (Math.abs(n) >= 1e4) return (n / 1e4).toFixed(2) + "万";
-  return n.toFixed(digits);
-};
 const fmtPct = (v: any) => {
   if (v == null) return "-";
   const n = Number(v);
@@ -206,10 +207,10 @@ const columns = computed<any[]>(() => [
     sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
   { key: "volume", title: "成交量(万)", width: 110, dataKey: "volume", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
   { key: "amount", title: "成交额", width: 100, dataKey: "amount", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
-  { key: "PE", title: "PE", width: 80, dataKey: "PE", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
-  { key: "PB", title: "PB", width: 80, dataKey: "PB", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
-  { key: "DV_RATIO", title: "股息率%", width: 90, dataKey: "DV_RATIO", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
-  { key: "DV_TTM", title: "TTM股息率%", width: 100, dataKey: "DV_TTM", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
+  { key: "pe", title: "PE", width: 80, dataKey: "pe", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
+  { key: "pb", title: "PB", width: 80, dataKey: "pb", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
+  { key: "dv_ratio", title: "股息率%", width: 90, dataKey: "dv_ratio", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
+  { key: "dv_ttm", title: "TTM股息率%", width: 100, dataKey: "dv_ttm", sortable: true, cellRenderer: ({ cellData }: any) => fmt(cellData) },
 ]);
 
 // Open the single-symbol K-line in a NEW browser tab so the market snapshot
@@ -217,7 +218,7 @@ const columns = computed<any[]>(() => [
 // auto-loads that symbol.
 function onRowClick({ rowData }: any) {
   if (!rowData || !rowData.symbol) return;
-  const url = `/#/?panel=4&view=single&symbol=${encodeURIComponent(rowData.symbol)}`;
+  const url = `/#/?panel=4&view=single&market=${encodeURIComponent(selectedMarket.value)}&symbol=${encodeURIComponent(rowData.symbol)}`;
   window.open(url, "_blank");
 }
 

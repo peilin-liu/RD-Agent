@@ -32,10 +32,10 @@ declare module '@/utils/api' {
       turnover: number | null;
       volume: number | null;
       amount: number | null;
-      PE: number | null;
-      PB: number | null;
-      DV_RATIO: number | null;
-      DV_TTM: number | null;
+      pe: number | null;
+      pb: number | null;
+      dv_ratio: number | null;
+      dv_ttm: number | null;
       pred_rank?: number | null;
       pred_score?: number | null;
       pred_action?: string;
@@ -50,13 +50,14 @@ declare module '@/utils/api' {
   }>;
   export function setRegion(region: string): Promise<any>;
   export function getSymbols(region: string): Promise<Array<{ symbol: string; name: string; listing_date?: string }>>;
+  export type PriceAdjustment = 'none' | 'qfq' | 'hfq';
   export function getOHLCV(
     region: string,
     instruments: string[],
     fields: string[],
     start: string,
     end: string,
-    adjust?: boolean,
+    adjustment?: PriceAdjustment,
     pitFields?: string[]
   ): Promise<{
     columns: string[];
@@ -65,6 +66,8 @@ declare module '@/utils/api' {
     tech_fields?: string[];
     pit_factors?: string[];
     pit_overlay_fields?: string[];
+    adjustment?: PriceAdjustment | 'stored';
+    adjustment_anchors?: Record<string, { date: string; factor: number }>;
     error?: string;
   }>;
   export interface ScenarioDataSplit {
@@ -76,7 +79,7 @@ declare module '@/utils/api' {
     test_end: string | null;
   }
   export function getScenarioInfo(): Promise<{ factor: ScenarioDataSplit; model: ScenarioDataSplit; quant: ScenarioDataSplit }>;
-  export function getDataRange(): Promise<{ regions: Record<string, { start: string; end: string; error?: string }> }>;
+  export function getDataRange(): Promise<{ regions: Record<string, { start: string; end: string; price_adjustment?: PriceAdjustment; error?: string }> }>;
   export function getCustomFactors(): Promise<Record<string, string> | { error: string }>;
   export function reloadQlib(region: string): Promise<{
     status: string;

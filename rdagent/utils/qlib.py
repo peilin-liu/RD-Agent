@@ -236,24 +236,24 @@ PIT_RAW_FIELDS = [
 # =============================================================================
 PIT_FACTORS = {
     # --- (A) tushare market-daily: precomputed valuation fields (recommended) ---
-    "PE": "$pe_ttm",                # 市盈率TTM
-    "PB": "$pb",                    # 市净率
-    "PS": "$ps_ttm",                # 市销率TTM
-    "DV_TTM": "$dv_ttm",            # 股息率TTM
-    "DV_RATIO": "$dv_ratio",        # 股息率(宣告)
-    "EARNINGS_YIELD": "1/($pe_ttm+1e-12)",   # 盈利收益率 = 1/PE
-    "BOOK_YIELD": "1/($pb+1e-12)",          # 账面收益率 = 1/PB
-    "PE_MA60": "Mean($pe_ttm, 60)",
-    "PB_MA60": "Mean($pb, 60)",
-    "PE_MA120": "Mean($pe_ttm, 120)",
-    "PB_MA120": "Mean($pb, 120)",
-    "PE_DELTA": "$pe_ttm-Ref($pe_ttm, 60)",
-    "PB_DELTA": "$pb-Ref($pb, 60)",
-    "PS_DELTA": "$ps_ttm-Ref($ps_ttm, 60)",
-    "DV_DELTA": "$dv_ttm-Ref($dv_ttm, 60)",
+    "pe": "$pe_ttm",                # 市盈率TTM
+    "pb": "$pb",                    # 市净率
+    "ps": "$ps_ttm",                # 市销率TTM
+    "dv_ttm": "$dv_ttm",            # 股息率TTM
+    "dv_ratio": "$dv_ratio",        # 股息率(宣告)
+    "earnings_yield": "1/($pe_ttm+1e-12)",   # 盈利收益率 = 1/PE
+    "book_yield": "1/($pb+1e-12)",          # 账面收益率 = 1/PB
+    "pe_ma60": "Mean($pe_ttm, 60)",
+    "pb_ma60": "Mean($pb, 60)",
+    "pe_ma120": "Mean($pe_ttm, 120)",
+    "pb_ma120": "Mean($pb, 120)",
+    "pe_delta": "$pe_ttm-Ref($pe_ttm, 60)",
+    "pb_delta": "$pb-Ref($pb, 60)",
+    "ps_delta": "$ps_ttm-Ref($ps_ttm, 60)",
+    "dv_delta": "$dv_ttm-Ref($dv_ttm, 60)",
     # --- (B) PIT financial dump alternative (only if financial/ exists) ---
-    # "PE": "($close/$factor)/(P(Sum($$eps_single_q,4))+1e-12)",  # PE-TTM
-    # "PB": "($close/$factor)/(P($$bvps_q)+1e-12)",
+    # "pe": "($close/$factor)/(P(Sum($$eps_single_q,4))+1e-12)",  # PE-TTM
+    # "pb": "($close/$factor)/(P($$bvps_q)+1e-12)",
     # "PCF": "($close/$factor)/(P($$fcf_q)+1e-12)",
     # "ROE": "P($$roe_q)",
     # "PEG": "(($close/$factor)/(P(Sum($$eps_single_q,4))+1e-12))/(P($$eps_growth_yoy_q)+1e-12)",

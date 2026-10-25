@@ -1,7 +1,7 @@
 """
 Region configuration for multi-market Qlib data.
 
-Reads from ~/rd-agent/config.json, falls back to hardcoded defaults.
+Reads from ~/.rd-agent/config.json, falls back to hardcoded defaults.
 Format:
 
 {
@@ -10,6 +10,7 @@ Format:
       "qlib_data_path": "/path/to/cn/",
       "market": "csi300",
       "benchmark": "SH000300",
+      "price_adjustment": "qfq",
       "ohlcv_fields": {
         "open": "$open/$factor",
         "high": "$high/$factor",
@@ -29,19 +30,19 @@ Format:
       },
       "inject_pit_factors": false,
       "pit_factors": {
-        "PE": "$pe_ttm",
-        "PB": "$pb",
-        "PS": "$ps_ttm",
-        "DV_TTM": "$dv_ttm",
-        "DV_RATIO": "$dv_ratio",
-        "EARNINGS_YIELD": "1/($pe_ttm+1e-12)",
-        "BOOK_YIELD": "1/($pb+1e-12)",
-        "PE_MA60": "Mean($pe_ttm, 60)",
-        "PB_MA60": "Mean($pb, 60)",
-        "PE_MA120": "Mean($pe_ttm, 120)",
-        "PB_MA120": "Mean($pb, 120)"
+        "pe": "$pe_ttm",
+        "pb": "$pb",
+        "ps": "$ps_ttm",
+        "dv_ttm": "$dv_ttm",
+        "dv_ratio": "$dv_ratio",
+        "earnings_yield": "1/($pe_ttm+1e-12)",
+        "book_yield": "1/($pb+1e-12)",
+        "pe_ma60": "Mean($pe_ttm, 60)",
+        "pb_ma60": "Mean($pb, 60)",
+        "pe_ma120": "Mean($pe_ttm, 120)",
+        "pb_ma120": "Mean($pb, 120)"
       },
-      "pit_overlay_fields": ["PE_MA60", "PB_MA60", "PE_MA120", "PB_MA120"],
+      "pit_overlay_fields": ["pe_ma60", "pb_ma60", "pe_ma120", "pb_ma120"],
       "predictions": {
         "csi1000": "/data/win_share/csi1000_valueback"
       }
@@ -57,12 +58,20 @@ Format:
 so the frontend shows clean names. List form ["$open", ...] is still accepted
 as legacy (key = expression without the leading "$").
 
+`ohlcv_fields` must express unadjusted (nominal) OHLC prices. For normalized
+Qlib data use `$open/$factor`, `$high/$factor`, `$low/$factor`, `$close/$factor`.
+`price_adjustment` selects the K-line default: `qfq` (front adjusted, default),
+`hfq` (back adjusted), or `none` (nominal). The API applies this conversion once
+after querying the nominal fields. Front adjustment uses each instrument's
+latest valid factor in the complete dataset, independent of the chart window.
+Market snapshots always use the nominal fields.
+
 `pit_factors` (optional): map of factor name → Qlib expression. Despite the
 legacy name, these need NOT use PIT financial data — they are regular Qlib
 expressions over any field in `{qlib_data_path}/features/`. With a tushare
 market-daily dump the valuation ratios come precomputed as daily fields
 (`$pe_ttm`, `$pb`, `$ps_ttm`, `$dv_ttm`, ...), so just reference them directly:
-`"PE": "$pe_ttm"`. If you DO have a PIT financial database under
+`"pe": "$pe_ttm"`. If you DO have a PIT financial database under
 `{qlib_data_path}/financial/`, use the `P($$field)` operator to collapse
 point-in-time data (e.g. `P(Sum($$eps_single_q,4))` for TTM EPS). Set
 `inject_pit_factors: true` only when expressions contain `P(...)`; otherwise
@@ -102,7 +111,7 @@ _DEFAULT_REGIONS = {
 
 _DEFAULT_REGION = "cn"
 
-_DEFAULT_OHLCV = {"open": "$open", "high": "$high", "low": "$low", "close": "$close"}
+_DEFAULT_OHLCV = {key: f"${key}/$factor" for key in ("open", "high", "low", "close")}
 _DEFAULT_TECH = {"volume": "$volume"}
 
 
@@ -135,6 +144,7 @@ class RegionInfo:
     # market -> prediction scores dir/file. The market-snapshot UI joins the
     # latest predictions_*.csv from the configured path into the index view.
     predictions: dict = field(default_factory=dict)
+    price_adjustment: str = "qfq"
 
 
 def _load_config() -> dict:
@@ -181,6 +191,9 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
         inject_pit = bool(ri.get("inject_pit_factors", False))
         pit_overlay = [str(k) for k in ri.get("pit_overlay_fields", []) if str(k) in pit_factors]
         predictions = {str(k): _resolve_path(str(v)) for k, v in (ri.get("predictions") or {}).items()}
+        price_adjustment = ri.get("price_adjustment", "qfq")
+        if price_adjustment not in ("none", "qfq", "hfq"):
+            raise ValueError(f"Invalid price_adjustment for {region}: {price_adjustment}")
         return RegionInfo(
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
@@ -193,6 +206,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             pit_factors=pit_factors,
             pit_overlay_fields=pit_overlay,
             predictions=predictions,
+            price_adjustment=price_adjustment,
         )
 
     if region in _DEFAULT_REGIONS:

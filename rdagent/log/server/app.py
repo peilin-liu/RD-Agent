@@ -976,6 +976,8 @@ class QlibDataProvider:
         self.pit_factors = ri.pit_factors if ri.pit_factors else {}
         self.pit_overlay_fields = ri.pit_overlay_fields if ri.pit_overlay_fields else []
         self.prediction_dirs = ri.predictions if ri.predictions else {}
+        self.price_adjustment = ri.price_adjustment
+        self._price_anchor_cache: dict[tuple[str, str], dict] = {}
         self._symbols: list[dict] = []
         self._verify_data_dir()
         self._init_qlib()
@@ -1032,7 +1034,10 @@ class QlibDataProvider:
         else:
             csv_path = None
         if csv_path is not None:
-            self._symbols = pd.read_csv(csv_path).to_dict(orient="records")
+            symbols = pd.read_csv(csv_path).astype(object)
+            # CSV blanks become NaN; emit JSON null so browsers can parse the list.
+            # Object dtype keeps numeric columns from coercing None back to NaN.
+            self._symbols = symbols.where(pd.notna(symbols), None).to_dict(orient="records")
         else:
             self._symbols = []
         # Load symbol metadata (name + industry) into an in-memory dict so the
@@ -1123,7 +1128,7 @@ class QlibDataProvider:
     SNAPSHOT_ALIASES = [
         "open", "close", "high", "low", "pct_chg",
         "volume", "amount", "turnover",
-        "PE", "PB", "DV_RATIO", "DV_TTM",
+        "pe", "pb", "dv_ratio", "dv_ttm",
     ]
 
     def market_snapshot(self, market: str, date: str) -> list[dict]:
@@ -1180,6 +1185,50 @@ class QlibDataProvider:
 
     def _parse_date(self, s: str) -> str:
         return pd.Timestamp(s).strftime("%Y-%m-%d")
+
+    def latest_price_anchors(self, instruments: list[str]) -> dict[str, dict]:
+        """Latest valid factor per symbol, independent of the requested window."""
+        first, last = self.data_range
+        missing = [symbol for symbol in instruments if (symbol, last) not in self._price_anchor_cache]
+        if missing:
+            history = self.query(missing, ["$factor"], first, last)
+            if history.empty:
+                raise ValueError(f"No adjustment factor available for {', '.join(missing)}")
+            for symbol in missing:
+                try:
+                    factors = history.xs(symbol, level="instrument")["$factor"].sort_index()
+                except KeyError as error:
+                    raise ValueError(f"No adjustment factor available for {symbol}") from error
+                factors = factors[factors.notna() & (factors > 0) & (factors < float("inf"))]
+                if factors.empty:
+                    raise ValueError(f"No valid adjustment factor available for {symbol}")
+                self._price_anchor_cache[(symbol, last)] = {
+                    "date": pd.Timestamp(factors.index[-1]).strftime("%Y-%m-%d"),
+                    "factor": float(factors.iloc[-1]),
+                }
+        return {symbol: self._price_anchor_cache[(symbol, last)] for symbol in instruments}
+
+    def adjust_prices(self, df: pd.DataFrame, mode: str, price_expressions: list[str]) -> tuple[pd.DataFrame, dict]:
+        """Convert configured nominal OHLC exactly once; other fields stay intact."""
+        if mode == "none":
+            return df, {}
+        anchors = {}
+        if mode == "qfq":
+            instruments = df.index.get_level_values("instrument")
+            anchors = self.latest_price_anchors(list(instruments.unique()))
+            latest = pd.Series([anchors[symbol]["factor"] for symbol in instruments], index=df.index)
+            multiplier = df["$factor"] / latest
+        else:
+            # Stored close = nominal * factor; adjclose is unnormalized hfq.
+            multiplier = df["$factor*$adjclose/$close"]
+        valid_price = df[price_expressions].notna().any(axis=1)
+        valid_factor = multiplier.notna() & (multiplier > 0) & (multiplier < float("inf"))
+        if (valid_price & ~valid_factor).any():
+            raise ValueError("Missing or invalid price adjustment factor")
+        df = df.copy()
+        for expression in set(price_expressions):
+            df[expression] = df[expression] * multiplier
+        return df, anchors
 
     def query(
         self,
@@ -1269,7 +1318,8 @@ def get_ohlcv(region: str):
       "instruments": ["000001.SZ"],
       "start": "2024-01-01", "end": "2024-12-31",
       "fields": ["$open","$close"],            # optional; empty = ohlcv+tech defaults
-      "pit_fields": ["PE","PB","PE_MA60"]       # optional; PIT display keys to fetch
+      "pit_fields": ["pe","pb","pe_ma60"],      # optional; PIT display keys to fetch
+      "adjustment": "qfq"                        # none / qfq / hfq; default from region config
     }
     ohlcv_fields + tech_fields are always queried when `fields` is empty.
     `pit_fields` (point-in-time financial factors) are queried ONLY when
@@ -1286,12 +1336,21 @@ def get_ohlcv(region: str):
 
     if not instruments:
         return jsonify({"error": "Missing instruments"}), 400
+    adjustment = data.get("adjustment")
+    # Compatibility for the old checkbox; new clients send an explicit mode.
+    if adjustment is None and "adjust" in data:
+        if not isinstance(data["adjust"], bool):
+            return jsonify({"error": "adjust must be a boolean"}), 400
+        adjustment = "hfq" if data["adjust"] else "none"
+    if adjustment is not None and adjustment not in ("none", "qfq", "hfq"):
+        return jsonify({"error": "adjustment must be none, qfq or hfq"}), 400
 
     try:
         provider = _get_provider(region)
         if provider is None:
             err = _qlib_failed_regions.get(region, "unknown error")
             return jsonify({"error": f"Region '{region}' failed to load: {err}"}), 503
+        adjustment = adjustment or provider.price_adjustment
         if not fields:
             fields = list(provider.ohlcv_fields.values()) + list(provider.tech_fields.values())
         # PIT factors are opt-in per request (slow P() operator). Map requested
@@ -1301,12 +1360,26 @@ def get_ohlcv(region: str):
             expr = provider.pit_factors.get(k)
             if expr and expr not in fields:
                 pit_exprs.append(expr)
-        all_fields = fields + pit_exprs
-        adjust = bool(data.get("adjust", False))
+        all_fields = list(dict.fromkeys(fields + pit_exprs))
+        price_expressions = [
+            expr for key, expr in provider.ohlcv_fields.items()
+            if key in ("open", "high", "low", "close") and expr in all_fields
+        ]
+        # Explicit low-level expressions bypass display-price conversion.
+        applied_adjustment = adjustment if price_expressions else "stored"
+        adjustment_field = {"qfq": "$factor", "hfq": "$factor*$adjclose/$close"}.get(applied_adjustment)
+        helper_added = adjustment_field is not None and adjustment_field not in all_fields
+        if helper_added:
+            all_fields.append(adjustment_field)
 
         df = provider.query(instruments, all_fields, start, end)
         if df.empty:
-            return jsonify({"data": []})
+            return jsonify({"data": [], "adjustment": applied_adjustment, "adjustment_anchors": {}})
+        anchors = {}
+        if price_expressions:
+            df, anchors = provider.adjust_prices(df, adjustment, price_expressions)
+        if helper_added:
+            df = df.drop(columns=[adjustment_field])
         df = df.reset_index()
         # Rename expression columns to display keys (ohlcv + tech + pit).
         rename_map = {}
@@ -1321,24 +1394,17 @@ def get_ohlcv(region: str):
         if "volume" in df.columns:
             df = df[df["volume"].fillna(0) > 0]
         if df.empty:
-            return jsonify({"data": []})
+            return jsonify({"data": [], "adjustment": applied_adjustment, "adjustment_anchors": anchors})
         # Loss-making stocks: tushare returns NaN for PE/PE_TTM (earnings ≤ 0).
         # Sentinel 99999 so the loss is visible instead of a silent null line.
         # Applies to PE-style columns only (PB/PS stay as-is).
-        for col in ("PE", "PE_MA60", "PE_MA120"):
+        for col in ("pe", "pe_ma60", "pe_ma120"):
             if col in df.columns:
                 df[col] = df[col].fillna(99999)
         df = df.reset_index(drop=True)
         # Ensure date column is plain string for JSON serialization
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-        # Adjusted prices: if requested, replace raw OHLC with adjusted values
-        if adjust and "adjclose" in df.columns and "close" in df.columns:
-            adj_ratio = df["adjclose"] / df["close"]
-            for raw_field in ["open", "high", "low"]:
-                if raw_field in df.columns:
-                    df[raw_field] = df[raw_field] * adj_ratio
-            df["close"] = df["adjclose"]
         # Manually convert NaN to None so jsonify produces valid JSON (null)
         def _clean(v):
             try:
@@ -1354,6 +1420,8 @@ def get_ohlcv(region: str):
             "tech_fields": list(provider.tech_fields.keys()),
             "pit_factors": list(provider.pit_factors.keys()),
             "pit_overlay_fields": list(provider.pit_overlay_fields),
+            "adjustment": applied_adjustment,
+            "adjustment_anchors": anchors,
         }
         return jsonify(result)
     except Exception as e:
@@ -1526,7 +1594,7 @@ def get_data_range():
             out[region] = {"start": "", "end": "", "error": _qlib_failed_regions.get(region, "unknown")}
         else:
             start, end = provider.data_range
-            out[region] = {"start": start, "end": end}
+            out[region] = {"start": start, "end": end, "price_adjustment": provider.price_adjustment}
     return jsonify({"regions": out}), 200
 
 

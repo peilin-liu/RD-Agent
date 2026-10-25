@@ -1,25 +1,5 @@
 <template>
   <div class="symbols-viewer">
-    <div class="controls-row" v-if="viewMode === 'single'">
-      <el-button type="success" plain @click="switchToMarket" size="small">市场行情</el-button>
-      <el-select-v2
-        v-model="selectedSymbol"
-        :options="symbolOptions"
-        filterable
-        placeholder="Search symbol..."
-        :loading="symbolsLoading"
-        @change="onSymbolChange"
-        style="width:240px; margin-left:12px"
-      />
-      <el-date-picker v-model="startDate" type="date" placeholder="Start" value-format="YYYY-MM-DD" @change="onDateChange" style="margin-left:12px;width:150px" />
-      <span style="margin:0 6px">~</span>
-      <el-date-picker v-model="endDate" type="date" placeholder="End" value-format="YYYY-MM-DD" @change="onDateChange" style="width:150px" />
-      <el-checkbox v-model="adjust" @change="onAdjustChange" style="margin-left:12px">Adjusted prices</el-checkbox>
-      <span class="hint">ohlcv + tech fields from ~/.rd-agent/config.json</span>
-      <el-button type="primary" @click="fetchData" :loading="dataLoading" style="margin-left:12px">Load</el-button>
-      <span v-if="errorMsg" class="error-msg">{{ errorMsg }}</span>
-    </div>
-
     <!-- Market snapshot view -->
     <MarketSnapshot
       v-if="viewMode === 'market'"
@@ -27,11 +7,106 @@
       :region="props.region"
       :latestDate="latestTradingDate"
       @select-symbol="onSnapshotSelectSymbol"
-      @back="viewMode = 'single'"
+      @back="onMarketBack"
     />
 
     <!-- Single-symbol K-line view -->
-    <template v-else>
+    <div v-else class="split-layout">
+      <aside class="symbol-sidebar" aria-label="指数成分股">
+        <div class="sidebar-heading">
+          <h2><label for="market-select">指数 / 股票池</label></h2>
+          <span class="region-badge">{{ props.region.toUpperCase() }}</span>
+        </div>
+        <el-select-v2
+          id="market-select"
+          v-model="selectedMarket"
+          :options="marketOptions"
+          :loading="marketsLoading"
+          filterable
+          placeholder="选择指数"
+          class="market-select"
+          @change="onMarketChange"
+        />
+        <el-input v-model="symbolSearch" placeholder="搜索代码或名称" clearable class="symbol-search" aria-label="搜索成分股" />
+        <div class="symbol-sort">
+          <el-select-v2
+            v-model="symbolSort"
+            :options="symbolSortOptions"
+            :loading="metricsLoading"
+            class="symbol-sort-select"
+            aria-label="成分股排序指标"
+            placeholder="排序指标"
+            @change="onSymbolSortChange"
+          />
+          <el-button class="sort-direction" :aria-label="sortOrder === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'" @click="toggleSortOrder">
+            {{ sortOrder === 'asc' ? '升序 ↑' : '降序 ↓' }}
+          </el-button>
+        </div>
+        <div class="list-summary">
+          <span>{{ marketLabel(selectedMarket) }}</span>
+          <span>{{ filteredSymbols.length }} / {{ constituents.length }} 只</span>
+        </div>
+        <div v-if="showSortValue" class="metric-caption">
+          <span>{{ metricsDate || latestTradingDate }}</span>
+          <span>{{ sortField.label }}</span>
+        </div>
+        <div v-if="symbolsError" class="sidebar-error" role="alert">
+          {{ symbolsError }}
+          <el-button link type="primary" @click="retrySymbols">重试</el-button>
+        </div>
+        <div v-if="metricsError" class="sidebar-error" role="alert">
+          {{ metricsError }}
+          <el-button link type="primary" @click="loadMetrics()">重试</el-button>
+        </div>
+        <div class="symbol-list" v-loading="symbolsLoading">
+          <el-auto-resizer v-if="filteredSymbols.length">
+            <template #default="{ height, width }">
+              <el-table-v2
+                v-if="height > 0 && width > 0"
+                ref="symbolTableRef"
+                :data="filteredSymbols"
+                :columns="symbolColumns(width)"
+                :width="width"
+                :height="height"
+                :header-height="0"
+                :row-height="62"
+                row-key="symbol"
+                :row-class="symbolRowClass"
+                :row-event-handlers="{ onClick: onSymbolRowClick }"
+                fixed
+              />
+            </template>
+          </el-auto-resizer>
+          <div v-else-if="!symbolsLoading && !symbolsError" class="list-empty">
+            {{ symbolSearch ? '没有匹配的股票' : '该股票池暂无可用成分股' }}
+          </div>
+        </div>
+        <div class="sidebar-footer">点击股票，在右侧查看 K 线</div>
+      </aside>
+
+      <section class="chart-pane" aria-label="股票 K 线">
+        <div class="chart-heading">
+          <div class="stock-title">
+            <h2>{{ selectedInfo?.name || selectedSymbol || '选择一只股票' }}</h2>
+            <span v-if="selectedSymbol" class="stock-code">{{ selectedSymbol }}</span>
+            <p class="stock-meta">
+              {{ selectedInfo?.industry_name || '日 K 线' }}
+              <span v-if="latestTradingDate"> · 数据截至 {{ latestTradingDate }}</span>
+              <span> · {{ adjustmentLabel }}<template v-if="adjustment === 'qfq' && adjustmentAnchorDate">（基准 {{ adjustmentAnchorDate }}）</template></span>
+            </p>
+          </div>
+          <el-button tag="a" :href="marketHref" plain @click.left.exact.prevent="switchToMarket" size="small">市场行情表</el-button>
+        </div>
+        <div class="controls-row">
+          <span class="control-label">日期范围</span>
+          <el-date-picker v-model="startDate" type="date" placeholder="开始日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
+          <span class="date-separator">至</span>
+          <el-date-picker v-model="endDate" type="date" placeholder="结束日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
+          <el-select-v2 v-model="adjustment" :options="adjustmentOptions" class="adjustment-select" aria-label="价格复权方式" @change="onAdjustmentChange" />
+          <el-button type="primary" @click="fetchData" :loading="dataLoading" :disabled="!selectedSymbol" size="small">刷新</el-button>
+        </div>
+        <div v-if="errorMsg" class="chart-error" role="alert">{{ errorMsg }}</div>
+        <p v-if="selectedSymbol && !symbolsLoading && !selectedInMarket" class="outside-market">当前股票不在所选股票池中，可从左侧选择成分股。</p>
     <div class="indicator-tags" v-if="rawData.length">
       <span class="row-label">MA</span>
       <el-tag
@@ -44,7 +119,13 @@
       >MA{{ p }}</el-tag>
     </div>
 
-    <div ref="chartDom" class="chart-container" v-loading="dataLoading"></div>
+    <div class="chart-stage" v-loading="dataLoading">
+      <div ref="chartDom" class="chart-container" v-show="rawData.length"></div>
+      <div v-if="!rawData.length && !dataLoading" class="chart-empty">
+        <strong>{{ selectedSymbol ? '暂无行情数据' : '从左侧选择股票' }}</strong>
+        <span>{{ selectedSymbol ? '可调整日期范围，或选择其他股票。' : '选择指数后，点击成分股即可查看 K 线。' }}</span>
+      </div>
+    </div>
 
     <div class="indicator-tags lower-tags" v-if="rawData.length">
       <span class="row-label">Indicator</span>
@@ -71,13 +152,16 @@
       >{{ f }}{{ pitOverlayFields.includes(f) ? ' ⓘ' : '' }}</el-tag>
       <span class="row-empty">ⓘ = overlay on K-line; others in indicator panel</span>
     </div>
-    </template>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
-import { getSymbols, getOHLCV, getDataRange } from "@/utils/api";
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, h } from "vue";
+import { getSymbols, getOHLCV, getDataRange, getMarkets, getInstruments, getMarketSnapshot } from "@/utils/api";
+import { snapshotSortFields, snapshotNumber, formatSnapshotNumber } from "@/utils/marketSnapshot";
+import type { PriceAdjustment } from "@/utils/api";
 import * as echarts from "echarts";
 import MarketSnapshot from "./MarketSnapshot.vue";
 
@@ -94,13 +178,12 @@ const initialView = (route.query[VIEW_Q] as "single" | "market") || "market";
 const viewMode = ref<"single" | "market">(
   initialView === "single" ? "single" : "market"
 );
-watch(viewMode, (v) => {
-  router.replace({ query: { ...route.query, [VIEW_Q]: v } });
-});
 const marketSnapRef = ref<any>(null);
 // Latest trading day, passed to MarketSnapshot so it defaults the date picker.
 const latestTradingDate = ref<string>("");
 function switchToMarket() {
+  chartRequest++;
+  dataLoading.value = false;
   viewMode.value = "market";
   // MarketSnapshot fetches on mount; if already mounted (toggling), refetch.
   nextTick(() => marketSnapRef.value?.fetchData?.());
@@ -108,25 +191,148 @@ function switchToMarket() {
 function onSnapshotSelectSymbol(sym: string) {
   selectedSymbol.value = sym;
   viewMode.value = "single";
-  nextTick(() => fetchData());
+}
+async function onMarketBack(market: string) {
+  if (selectedMarket.value !== market) {
+    selectedMarket.value = market;
+    await loadConstituents(true);
+  }
+  viewMode.value = "single";
 }
 
-const symbols = ref<Array<{ symbol: string; name: string; listing_date?: string }>>([]);
-const symbolOptions = computed(() =>
-  symbols.value.map(s => ({ label: `${s.symbol}  ${s.name}`, value: s.symbol }))
-);
+type SymbolInfo = { symbol: string; name: string; listing_date?: string; industry_name?: string };
+const symbols = ref<SymbolInfo[]>([]);
+const constituents = ref<SymbolInfo[]>([]);
 const symbolsLoading = ref(false);
+const symbolsError = ref("");
+const markets = ref<string[]>([]);
+const marketsLoading = ref(false);
+const selectedMarket = ref<string>((route.query.market as string) || "csi300");
+const symbolSearch = ref("");
+const symbolTableRef = ref<any>(null);
+type SnapshotRow = Awaited<ReturnType<typeof getMarketSnapshot>>["data"][number];
+const metricsBySymbol = ref<Record<string, SnapshotRow>>({});
+const metricsLoading = ref(false);
+const metricsLoaded = ref(false);
+const metricsError = ref("");
+const metricsDate = ref("");
+const hasPredictions = ref(false);
+const symbolSort = ref(snapshotSortFields.some(field => field.value === route.query.list_sort)
+  ? String(route.query.list_sort) : "symbol");
+function defaultSortOrder(key: string): "asc" | "desc" {
+  return ["symbol", "name", "pred_rank"].includes(key) ? "asc" : "desc";
+}
+const sortOrder = ref<"asc" | "desc">(route.query.list_order === "asc" || route.query.list_order === "desc"
+  ? route.query.list_order : defaultSortOrder(symbolSort.value));
+const symbolSortOptions = computed(() => snapshotSortFields.filter(field =>
+  field.value !== "pred_rank" || hasPredictions.value || symbolSort.value === "pred_rank"));
+const sortField = computed(() => snapshotSortFields.find(field => field.value === symbolSort.value) || snapshotSortFields[0]);
+const showSortValue = computed(() => !["symbol", "name"].includes(symbolSort.value));
+function sortValue(symbol: string, key = symbolSort.value): number | null {
+  const row = metricsBySymbol.value[symbol];
+  return snapshotNumber(row?.[key as keyof SnapshotRow]);
+}
+function sortValueText(symbol: string): string {
+  if (metricsLoading.value && !metricsLoaded.value) return "…";
+  const value = sortValue(symbol);
+  if (value == null) return "-";
+  if (symbolSort.value === "pred_rank") return String(value);
+  if (sortField.value.percent) return `${symbolSort.value === "pct_chg" && value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  return formatSnapshotNumber(value);
+}
+function onSymbolSortChange() { sortOrder.value = defaultSortOrder(symbolSort.value); }
+function toggleSortOrder() { sortOrder.value = sortOrder.value === "asc" ? "desc" : "asc"; }
+let constituentsRequest = 0;
+let chartRequest = 0;
+const MARKET_LABELS: Record<string, string> = {
+  all: "全部股票", csi300: "沪深300", csi500: "中证500", csi1000: "中证1000",
+  csi2000: "中证2000", sse50: "上证50", csi_dividend: "中证红利", csi_soe: "中证国企",
+  csi_soe_dividend: "国企红利", csi800_consumer: "中证800消费", csi800_healthcare: "中证800医药",
+  main_board: "主板", bj_board: "北交所", chinext: "创业板", chinext_board: "创业板",
+  star_board: "科创板", custom_6in1: "自定义 6 合 1",
+};
+function marketLabel(market: string) { return MARKET_LABELS[market] || market; }
+const marketOptions = computed(() => markets.value.map(m => ({
+  label: `${marketLabel(m)}${MARKET_LABELS[m] ? ` · ${m}` : ""}`, value: m,
+})));
+const filteredSymbols = computed(() => {
+  const query = symbolSearch.value.trim().toLowerCase();
+  const rows = constituents.value.filter(s => !query || `${s.symbol} ${s.name || ""}`.toLowerCase().includes(query));
+  const direction = sortOrder.value === "asc" ? 1 : -1;
+  return rows.sort((a, b) => {
+    const tie = a.symbol.localeCompare(b.symbol);
+    if (symbolSort.value === "symbol") return tie * direction;
+    if (symbolSort.value === "name") return (a.name || "").localeCompare(b.name || "", "zh-CN") * direction || tie;
+    const av = sortValue(a.symbol), bv = sortValue(b.symbol);
+    // Missing values stay at the end in either direction; equal values use code.
+    if (av == null && bv == null) return tie;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return (av - bv) * direction || tie;
+  });
+});
 // Selected symbol lives in URL (?symbol=000538.SZ) so refresh keeps it and
 // deep links work. Auto-loads on mount if present.
 const selectedSymbol = ref<string>((route.query.symbol as string) || "");
-watch(selectedSymbol, (v) => {
-  router.replace({ query: { ...route.query, symbol: v || undefined } });
+const selectedInfo = computed(() => constituents.value.find(s => s.symbol === selectedSymbol.value)
+  || symbols.value.find(s => s.symbol === selectedSymbol.value));
+const selectedInMarket = computed(() => constituents.value.some(s => s.symbol === selectedSymbol.value));
+function isAdjustment(value: unknown): value is PriceAdjustment {
+  return value === "none" || value === "qfq" || value === "hfq";
+}
+let adjustmentChosen = isAdjustment(route.query.adjustment);
+const adjustment = ref<PriceAdjustment>(isAdjustment(route.query.adjustment) ? route.query.adjustment : "qfq");
+const adjustmentAnchorDate = ref("");
+const adjustmentOptions = [
+  { label: "前复权", value: "qfq" },
+  { label: "后复权", value: "hfq" },
+  { label: "不复权", value: "none" },
+];
+const adjustmentLabel = computed(() => adjustmentOptions.find(option => option.value === adjustment.value)?.label);
+const marketHref = computed(() => router.resolve({
+  path: route.path,
+  query: {
+    ...route.query, panel: "4", view: "market", market: selectedMarket.value,
+    symbol: selectedSymbol.value || undefined, adjustment: adjustment.value,
+  },
+}).href);
+watch([viewMode, selectedMarket, selectedSymbol, adjustment, symbolSort, sortOrder], ([view, market, symbol, priceMode, listSort, listOrder]) => {
+  router.replace({ query: {
+    ...route.query, [VIEW_Q]: view, market, symbol: symbol || undefined, adjustment: priceMode,
+    list_sort: listSort === "symbol" && listOrder === "asc" ? undefined : listSort,
+    list_order: listSort === "symbol" && listOrder === "asc" ? undefined : listOrder,
+  } });
 });
+function symbolColumns(width: number) {
+  return [{
+    key: "symbol", dataKey: "symbol", title: "股票", width,
+    cellRenderer: ({ rowData }: { rowData: SymbolInfo }) => {
+      const value = sortValue(rowData.symbol);
+      return h("div", { class: "symbol-item" }, [
+        h("div", { class: "symbol-identity" }, [
+          h("span", { class: "symbol-name", title: rowData.name || rowData.symbol }, rowData.name || rowData.symbol),
+          h("span", { class: "symbol-code" }, rowData.symbol),
+        ]),
+        showSortValue.value ? h("span", {
+          class: ["symbol-metric", symbolSort.value === "pct_chg" && value != null ? (value > 0 ? "metric-up" : value < 0 ? "metric-down" : "") : ""],
+          title: `${sortField.value.label}: ${value ?? "-"} · ${metricsDate.value || latestTradingDate.value}`,
+        }, sortValueText(rowData.symbol)) : null,
+      ]);
+    },
+  }];
+}
+function symbolRowClass({ rowData }: { rowData: SymbolInfo }) {
+  return rowData.symbol === selectedSymbol.value ? "symbol-row selected" : "symbol-row";
+}
+function onSymbolRowClick({ rowData }: { rowData: SymbolInfo }) {
+  if (rowData.symbol === selectedSymbol.value) return;
+  selectedSymbol.value = rowData.symbol;
+  fetchData();
+}
 const startDate = ref<string | null>(new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10));
 const endDate = ref<string | null>(new Date().toISOString().slice(0, 10));
 const dataLoading = ref(false);
 const errorMsg = ref("");
-const adjust = ref(false);
 
 const CORE_FIELDS = ["open", "high", "low", "close"];
 // Lower-panel fields enabled by default on first load (case-insensitive):
@@ -135,8 +341,8 @@ const DEFAULT_LOWER_FIELDS = ["pe", "pb", "pe_ttm", "pb_ttm"];
 function isDefaultField(f: string): boolean {
   return DEFAULT_LOWER_FIELDS.includes(String(f).toLowerCase());
 }
-const maPeriods = [5, 10, 20, 30, 60, 250];
-const enabledMA = ref<Set<number>>(new Set([5, 10, 20]));
+const maPeriods = [5, 10, 20, 30, 60, 250, 500];
+const enabledMA = ref<Set<number>>(new Set(maPeriods));
 // Fixed color per MA period so the tag and the overlay line share the same
 // color, making it easy to tell MA types apart on the chart.
 const MA_COLORS: Record<number, string> = {
@@ -146,6 +352,7 @@ const MA_COLORS: Record<number, string> = {
   30: "#91cc75",
   60: "#73c0de",
   250: "#9a60b4",
+  500: "#fc8452",
 };
 function maColor(p: number): string {
   return MA_COLORS[p] || "#999";
@@ -195,25 +402,58 @@ let chartInstance: echarts.ECharts | null = null;
 
 onMounted(async () => {
   loadSymbols();
-  loadLatestDate();
-  window.addEventListener("resize", resizeChart);
-  chartDom.value?.addEventListener("wheel", onChartWheel, { passive: false });
-  // If the URL carries a symbol and we're in single-symbol view, auto-load it
-  // (e.g. clicked through from the market snapshot, or a shared deep link).
-  if (selectedSymbol.value && viewMode.value === "single") {
-    await nextTick();
-    fetchData();
-  }
+  await Promise.all([loadLatestDate(), loadMarkets()]);
+  await loadConstituents(true);
 });
 async function loadLatestDate() {
   try {
     const res: any = await getDataRange();
-    const cn = res?.regions?.cn || res?.[props.region];
-    latestTradingDate.value = cn?.end || res?.end || "";
+    const region = res?.regions?.[props.region] || res?.[props.region];
+    latestTradingDate.value = region?.end || res?.end || "";
+    if (!adjustmentChosen && isAdjustment(region?.price_adjustment)) {
+      adjustment.value = region.price_adjustment;
+    }
   } catch (e) { /* non-fatal */ }
 }
+let chartResizeObserver: ResizeObserver | undefined;
+watch(chartDom, (element, previous) => {
+  previous?.removeEventListener("wheel", onChartWheel);
+  chartResizeObserver?.disconnect();
+  chartInstance?.dispose();
+  chartInstance = null;
+  if (element) {
+    element.addEventListener("wheel", onChartWheel, { passive: false });
+    chartResizeObserver = new ResizeObserver(resizeChart);
+    chartResizeObserver.observe(element);
+    renderChart();
+  }
+}, { flush: "post" });
+watch(viewMode, async (view) => {
+  if (view === "single") {
+    await nextTick();
+    if (!metricsLoaded.value && !metricsLoading.value) loadMetrics();
+    if (!selectedSymbol.value && constituents.value.length) selectedSymbol.value = constituents.value[0].symbol;
+    fetchData();
+  }
+});
+// AutoResizer starts at zero dimensions. Wait for the sized table to mount
+// before scrolling, otherwise virtual rows and the DOM scroll offset diverge.
+watch([symbolTableRef, filteredSymbols, selectedSymbol], async ([table, , symbol], [previousTable, , previousSymbol]) => {
+  await nextTick();
+  if (!table || table !== symbolTableRef.value) return;
+  const index = filteredSymbols.value.findIndex(s => s.symbol === selectedSymbol.value);
+  if (table !== previousTable || symbol !== previousSymbol) {
+    if (index >= 0) table.scrollToRow(index, "auto");
+  } else {
+    // Sort/filter changes show the beginning of the ordered list, without
+    // changing the stock whose K-line is currently open.
+    table.scrollToTop(0);
+  }
+}, { flush: "post" });
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", resizeChart);
+  constituentsRequest++;
+  chartRequest++;
+  chartResizeObserver?.disconnect();
   chartDom.value?.removeEventListener("wheel", onChartWheel);
   if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
 });
@@ -246,8 +486,11 @@ function onChartWheel(e: WheelEvent) {
   chartInstance.dispatchAction({ type: "dataZoom", start: ns, end: ne });
 }
 
-watch(() => props.region, () => {
+watch(() => props.region, async () => {
+  chartRequest++;
+  constituentsRequest++;
   selectedSymbol.value = "";
+  constituents.value = [];
   rawData.value = [];
   rawDataFull.value = [];
   userStart.value = "";
@@ -260,40 +503,120 @@ watch(() => props.region, () => {
   defaultsApplied.value = false;
   if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
   loadSymbols();
+  await Promise.all([loadLatestDate(), loadMarkets()]);
+  await loadConstituents();
 });
 
 async function loadSymbols() {
-  symbolsLoading.value = true;
-  errorMsg.value = "";
   try {
     const res = await getSymbols(props.region);
-    if (Array.isArray(res)) {
-      symbols.value = res;
-    } else {
-      symbols.value = [];
-      errorMsg.value = "Failed to load symbols: " + ((res as any)?.error || "invalid response");
+    symbols.value = Array.isArray(res) ? res : [];
+  } catch { symbols.value = []; }
+}
+
+function apiError(response: unknown, fallback: string) {
+  const value = response as { error?: string; data?: { error?: string } } | undefined;
+  return new Error(value?.error || value?.data?.error || fallback);
+}
+
+async function loadMarkets() {
+  marketsLoading.value = true;
+  symbolsError.value = "";
+  try {
+    const res = await getMarkets(props.region);
+    if (!Array.isArray(res?.markets)) throw apiError(res, "无法加载指数列表");
+    markets.value = res.markets;
+    if (!markets.value.includes(selectedMarket.value)) selectedMarket.value = markets.value[0] || "all";
+  } catch (error: any) {
+    markets.value = [];
+    symbolsError.value = error?.message || "无法加载指数列表";
+  } finally { marketsLoading.value = false; }
+}
+
+async function loadConstituents(preserveSelection = false) {
+  const request = ++constituentsRequest;
+  chartRequest++;
+  dataLoading.value = false;
+  symbolsLoading.value = true;
+  symbolsError.value = "";
+  constituents.value = [];
+  symbolSearch.value = "";
+  metricsBySymbol.value = {};
+  metricsLoading.value = false;
+  metricsLoaded.value = false;
+  metricsError.value = "";
+  metricsDate.value = "";
+  hasPredictions.value = false;
+  if (!preserveSelection) {
+    rawData.value = [];
+    rawDataFull.value = [];
+    chartInstance?.clear();
+  }
+  try {
+    const res = await getInstruments(props.region, selectedMarket.value);
+    if (request !== constituentsRequest) return;
+    if (!Array.isArray(res?.instruments)) throw apiError(res, "无法加载成分股");
+    constituents.value = res.instruments;
+    if ((!preserveSelection && !selectedInMarket.value) || !selectedSymbol.value) {
+      selectedSymbol.value = constituents.value[0]?.symbol || "";
     }
-  } catch (e: any) {
-    symbols.value = [];
-    errorMsg.value = "Failed to load symbols: " + (e?.message || e);
+    if (viewMode.value === "single") {
+      fetchData();
+      loadMetrics(request);
+    }
+  } catch (error: any) {
+    if (request !== constituentsRequest) return;
+    symbolsError.value = error?.message || "无法加载成分股";
   } finally {
-    symbolsLoading.value = false;
+    if (request === constituentsRequest) symbolsLoading.value = false;
   }
 }
 
-function onSymbolChange() { fetchData(); }
+async function loadMetrics(request = constituentsRequest) {
+  if (request !== constituentsRequest || metricsLoading.value || metricsLoaded.value || !constituents.value.length) return;
+  metricsLoading.value = true;
+  metricsError.value = "";
+  try {
+    const response = await getMarketSnapshot(props.region, selectedMarket.value);
+    if (request !== constituentsRequest) return;
+    if (!Array.isArray(response?.data)) throw apiError(response, "无法加载排序指标");
+    metricsBySymbol.value = Object.fromEntries(response.data.map(row => [row.symbol, row]));
+    metricsDate.value = response.date;
+    hasPredictions.value = !!response.predictions;
+    metricsLoaded.value = true;
+  } catch (error: any) {
+    if (request === constituentsRequest) metricsError.value = error?.message || "无法加载排序指标";
+  } finally {
+    if (request === constituentsRequest) metricsLoading.value = false;
+  }
+}
+
+function onMarketChange() { loadConstituents(); }
+async function retrySymbols() {
+  await loadMarkets();
+  if (!symbolsError.value) await loadConstituents(true);
+}
+
 function onDateChange() { if (selectedSymbol.value) fetchData(); }
-function onAdjustChange() { if (selectedSymbol.value) fetchData(); }
+function onAdjustmentChange() {
+  adjustmentChosen = true;
+  if (selectedSymbol.value) fetchData();
+}
 
 async function fetchData() {
-  if (!selectedSymbol.value) return;
+  const request = ++chartRequest;
+  rawData.value = [];
+  rawDataFull.value = [];
+  adjustmentAnchorDate.value = "";
+  chartInstance?.clear();
   errorMsg.value = "";
+  if (!selectedSymbol.value) return;
   dataLoading.value = true;
   try {
     const start = startDate.value || "2024-01-01";
     const end = endDate.value || "2024-12-31";
     userStart.value = start;
-    // Lookback buffer so long MAs (MA250) have enough history to form. Fetch
+    // Lookback buffer so long MAs (MA500) have enough history to form. Fetch
     // ~1.6x the longest MA period in calendar days before the user's start.
     const maxMA = Math.max(...maPeriods);
     const lookbackDays = Math.ceil(maxMA * 1.6);
@@ -303,8 +626,12 @@ async function fetchData() {
     // Send empty fields -> backend uses ohlcv_fields + tech_fields from ~/.rd-agent/config.json.
     // PIT factors are opt-in (slow P() operator): pass enabled PIT keys via pitFields.
     const pitKeys = Array.from(enabledPit.value);
-    const res = await getOHLCV(props.region, [selectedSymbol.value], [], fetchStartStr, end, adjust.value, pitKeys);
-    if (!res.columns || !res.data) { errorMsg.value = "Invalid response from server"; return; }
+    const res = await getOHLCV(props.region, [selectedSymbol.value], [], fetchStartStr, end, adjustment.value, pitKeys);
+    if (request !== chartRequest) return;
+    if (!Array.isArray(res?.data)) throw apiError(res, "无法加载行情数据");
+    if (!res.data.length) return;
+    if (!Array.isArray(res.columns)) throw new Error("行情数据格式无效");
+    adjustmentAnchorDate.value = res.adjustment_anchors?.[selectedSymbol.value]?.date || "";
     const rows = res.data.map((row: any[]) => Object.fromEntries(res.columns.map((c: string, i: number) => [c, row[i]])));
     const normalized = rows.map((r: Record<string, any>) => {
       const nr: Record<string, any> = {};
@@ -342,11 +669,12 @@ async function fetchData() {
       }
     }
     await nextTick();
+    if (request !== chartRequest) return;
     renderChart();
   } catch (e: any) {
-    errorMsg.value = e?.message || String(e);
+    if (request === chartRequest) errorMsg.value = e?.message || String(e);
   } finally {
-    dataLoading.value = false;
+    if (request === chartRequest) dataLoading.value = false;
   }
 }
 
@@ -383,6 +711,7 @@ function calcMA(values: number[], period: number): (number | null)[] {
 function renderChart() {
   if (!chartDom.value || !rawData.value.length) return;
   if (!chartInstance) chartInstance = echarts.init(chartDom.value);
+  chartInstance.resize();
 
   const dates = rawData.value.map((r) => r.date);
   // Map OHLC by position from ohlcv_fields (supports expressions like $open/$factor)
@@ -398,7 +727,7 @@ function renderChart() {
   const lowerPit = pitFactorFields.value.filter((f) => enabledPit.value.has(f) && !pitOverlayFields.value.includes(f));
   const maList = maPeriods.filter((p) => enabledMA.value.has(p));
 
-  // MA uses the full lookback data (rawDataFull) so long periods (MA250) have
+  // MA uses the full lookback data (rawDataFull) so long periods (MA500) have
   // enough history, then slices to the displayed window. `rawData` is a
   // date-filtered contiguous tail of rawDataFull, so offset aligns them.
   const fullCloses = rawDataFull.value.map((r) => Number(r[closeK]));
@@ -552,14 +881,76 @@ function renderChart() {
 </script>
 
 <style scoped lang="scss">
-.symbols-viewer { padding: 4px 20px 16px; }
-.controls-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.error-msg { color: #f56c6c; font-size: 13px; margin-left: 12px; }
-.hint { font-size: 12px; color: #909399; margin-left: 12px; }
+.symbols-viewer { padding: 4px 20px 20px; }
+.split-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.symbol-sidebar, .chart-pane { background: #fff; border: 1px solid #e5e9f0; border-radius: 12px; color: #303133; min-width: 0; }
+.symbol-sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden; position: relative; }
+.sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 18px 12px 14px; }
+.sidebar-heading h2, .stock-title h2 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5; }
+.region-badge { background: #f0f4ff; color: #5369bb; padding: 3px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; }
+.control-label { color: #7b8495; font-size: 12px; white-space: nowrap; }
+.market-select, .symbol-search { width: calc(100% - 24px) !important; margin: 0 12px 12px; }
+.symbol-sort { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 6px; margin: 0 12px 12px; }
+.symbol-sort-select { width: 100%; min-width: 0; }
+.symbol-sort .sort-direction { width: 52px; padding: 4px 5px; font-size: 12px; }
+.metric-caption { display: flex; justify-content: space-between; gap: 6px; padding: 7px 12px; border-bottom: 1px solid #eef0f4; color: #8b93a3; font-size: 11px; }
+.metric-caption span:last-child { color: #535d70; }
+.list-summary { display: flex; justify-content: space-between; gap: 6px; padding: 0 12px 10px; color: #8b93a3; font-size: 12px; border-bottom: 1px solid #eef0f4; }
+.list-summary span:first-child { color: #535d70; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-summary span:last-child { flex-shrink: 0; }
+.symbol-list { flex: 1; min-height: 0; position: relative; }
+/* Let the chart determine the grid height, independently of virtual-table measurements. */
+.symbol-list :deep(.el-auto-resizer) { position: absolute; inset: 0; }
+.symbol-list :deep(.el-table-v2__row.symbol-row) { cursor: pointer; border-bottom: 1px solid #f1f3f7; }
+.symbol-list :deep(.el-table-v2__row.selected) { background: #edf3ff; box-shadow: inset 3px 0 #5470c6; }
+.symbol-list :deep(.el-table-v2__row:hover) { background: #f4f7fc; }
+.symbol-list :deep(.el-table-v2__row.selected:hover) { background: #edf3ff; }
+.symbol-list :deep(.symbol-item) { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0 3px; min-width: 0; box-sizing: border-box; }
+.symbol-list :deep(.symbol-identity) { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.symbol-list :deep(.symbol-name) { color: #303b51; font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symbol-list :deep(.symbol-code) { color: #8b93a3; font-size: 12px; font-variant-numeric: tabular-nums; }
+.symbol-list :deep(.symbol-metric) { flex-shrink: 0; max-width: 76px; color: #535d70; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symbol-list :deep(.metric-up) { color: #ef232a; }
+.symbol-list :deep(.metric-down) { color: #14b143; }
+.symbol-list :deep(.selected .symbol-name) { color: #3e5db3; }
+.sidebar-footer { padding: 12px; border-top: 1px solid #eef0f4; font-size: 11px; color: #9aa1ae; }
+.sidebar-error { padding: 10px 16px; color: #c45656; font-size: 12px; line-height: 1.6; background: #fff5f5; }
+.list-empty { padding: 40px 16px; text-align: center; color: #9aa1ae; font-size: 13px; }
+.chart-pane { padding: 20px; }
+.chart-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
+.stock-title { display: flex; gap: 4px 12px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.stock-title h2 { font-size: 22px; color: #263147; }
+.stock-code { color: #828c9e; font-size: 13px; font-variant-numeric: tabular-nums; }
+.stock-meta { font-size: 12px; color: #9aa1ae; margin: 0; }
+.controls-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; margin-bottom: 14px; border-top: 1px solid #eef0f4; border-bottom: 1px solid #eef0f4; }
+.controls-row :deep(.date-picker.el-input) { width: 154px !important; flex-grow: 0; }
+.adjustment-select { width: 110px; }
+.date-separator { color: #a0a7b3; font-size: 12px; }
+.chart-error { padding: 10px 12px; background: #fff2f0; border-radius: 6px; color: #c45656; font-size: 13px; margin-bottom: 12px; }
+.outside-market { color: #909399; font-size: 12px; margin: 0 0 10px; }
+.chart-stage { min-height: 480px; position: relative; }
+.chart-empty { min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #a0a7b3; font-size: 13px; }
+.chart-empty strong { font-size: 17px; color: #737d90; font-weight: 500; }
 .indicator-tags { margin-bottom: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .indicator-tags.lower-tags { margin-top: 6px; margin-bottom: 0; }
 .ind-tag { cursor: pointer; user-select: none; }
 .row-label { font-size: 12px; color: #909399; margin-right: 4px; }
 .row-empty { font-size: 12px; color: #c0c4cc; }
-.chart-container { width: 100%; height: 640px; border: 1px solid #ebeef5; border-radius: 6px; margin-top: 8px; }
+.chart-container { width: 100%; height: clamp(480px, 62vh, 700px); }
+@media (max-width: 1100px) {
+  .split-layout { grid-template-columns: 180px minmax(0, 1fr); gap: 10px; }
+  .chart-pane { padding: 16px; }
+  .symbols-viewer { padding: 4px 12px 16px; }
+}
+@media (max-width: 700px) {
+  .split-layout { grid-template-columns: minmax(0, 1fr); }
+  .symbol-sidebar { position: static; height: 400px; }
+  .chart-heading { align-items: flex-start; }
+  .stock-title { gap: 5px 10px; }
+  .stock-title h2 { font-size: 19px; }
+  .stock-meta { flex-basis: 100%; }
+  .controls-row { gap: 8px; }
+  .controls-row > .control-label { width: 100%; }
+  .controls-row :deep(.date-picker.el-input) { width: 140px !important; }
+}
 </style>
