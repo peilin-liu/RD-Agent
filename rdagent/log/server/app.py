@@ -977,6 +977,7 @@ class QlibDataProvider:
         self.pit_overlay_fields = ri.pit_overlay_fields if ri.pit_overlay_fields else []
         self.prediction_dirs = ri.predictions if ri.predictions else {}
         self.price_adjustment = ri.price_adjustment
+        self.chips = ri.chips
         self._price_anchor_cache: dict[tuple[str, str], dict] = {}
         self._symbols: list[dict] = []
         self._verify_data_dir()
@@ -1230,6 +1231,28 @@ class QlibDataProvider:
             df[expression] = df[expression] * multiplier
         return df, anchors
 
+    def adjust_chip_prices(self, df: pd.DataFrame, mode: str, fields: dict) -> tuple[pd.DataFrame, dict]:
+        """Vendor costs are latest-anchor qfq; convert only cost prices, never rates."""
+        expressions = list(set(fields.values()))
+        if not expressions or not df[expressions].notna().any().any():
+            return df, {}
+        instruments = df.index.get_level_values("instrument")
+        anchors = self.latest_price_anchors(list(instruments.unique()))
+        if mode == "qfq":
+            return df, anchors
+        latest = pd.Series([anchors[symbol]["factor"] for symbol in instruments], index=df.index)
+        multiplier = latest / df["$factor"]
+        if mode == "hfq":
+            multiplier = multiplier * df["$factor*$adjclose/$close"]
+        valid_price = df[expressions].notna().any(axis=1)
+        valid_factor = multiplier.notna() & (multiplier > 0) & (multiplier < float("inf"))
+        if (valid_price & ~valid_factor).any():
+            raise ValueError("Missing or invalid chip price adjustment factor")
+        df = df.copy()
+        for expression in expressions:
+            df[expression] = df[expression] * multiplier
+        return df, anchors
+
     def query(
         self,
         instruments: list[str],
@@ -1351,8 +1374,13 @@ def get_ohlcv(region: str):
             err = _qlib_failed_regions.get(region, "unknown error")
             return jsonify({"error": f"Region '{region}' failed to load: {err}"}), 503
         adjustment = adjustment or provider.price_adjustment
-        if not fields:
+        use_default_fields = not fields
+        if use_default_fields:
             fields = list(provider.ohlcv_fields.values()) + list(provider.tech_fields.values())
+        chips = getattr(provider, "chips", {}) if use_default_fields else {}
+        chip_prices = chips.get("price_fields", {})
+        chip_rates = chips.get("rate_fields", {})
+        chip_fields = {**chip_prices, **chip_rates}
         # PIT factors are opt-in per request (slow P() operator). Map requested
         # display keys to their Qlib expressions via pit_factors.
         pit_exprs: list[str] = []
@@ -1360,7 +1388,7 @@ def get_ohlcv(region: str):
             expr = provider.pit_factors.get(k)
             if expr and expr not in fields:
                 pit_exprs.append(expr)
-        all_fields = list(dict.fromkeys(fields + pit_exprs))
+        all_fields = list(dict.fromkeys(fields + pit_exprs + list(chip_fields.values())))
         price_expressions = [
             expr for key, expr in provider.ohlcv_fields.items()
             if key in ("open", "high", "low", "close") and expr in all_fields
@@ -1368,9 +1396,13 @@ def get_ohlcv(region: str):
         # Explicit low-level expressions bypass display-price conversion.
         applied_adjustment = adjustment if price_expressions else "stored"
         adjustment_field = {"qfq": "$factor", "hfq": "$factor*$adjclose/$close"}.get(applied_adjustment)
-        helper_added = adjustment_field is not None and adjustment_field not in all_fields
-        if helper_added:
-            all_fields.append(adjustment_field)
+        helper_fields = [adjustment_field] if adjustment_field else []
+        if chip_prices and adjustment != "qfq":
+            helper_fields.append("$factor")
+            if adjustment == "hfq":
+                helper_fields.append("$factor*$adjclose/$close")
+        added_helpers = [field for field in dict.fromkeys(helper_fields) if field not in all_fields]
+        all_fields.extend(added_helpers)
 
         df = provider.query(instruments, all_fields, start, end)
         if df.empty:
@@ -1378,12 +1410,15 @@ def get_ohlcv(region: str):
         anchors = {}
         if price_expressions:
             df, anchors = provider.adjust_prices(df, adjustment, price_expressions)
-        if helper_added:
-            df = df.drop(columns=[adjustment_field])
+        chip_anchors = {}
+        if chip_prices:
+            df, chip_anchors = provider.adjust_chip_prices(df, adjustment, chip_prices)
+        if added_helpers:
+            df = df.drop(columns=added_helpers)
         df = df.reset_index()
         # Rename expression columns to display keys (ohlcv + tech + pit).
         rename_map = {}
-        for key, expr in {**provider.ohlcv_fields, **provider.tech_fields, **provider.pit_factors}.items():
+        for key, expr in {**provider.ohlcv_fields, **provider.tech_fields, **provider.pit_factors, **chip_fields}.items():
             if expr in df.columns:
                 rename_map[expr] = key
         if rename_map:
@@ -1422,6 +1457,14 @@ def get_ohlcv(region: str):
             "pit_overlay_fields": list(provider.pit_overlay_fields),
             "adjustment": applied_adjustment,
             "adjustment_anchors": anchors,
+            "chips": {
+                "price_fields": list(chip_prices),
+                "rate_fields": list(chip_rates),
+                "default_layers": chips.get("default_layers", []),
+                "source_adjustment": "qfq" if chips else None,
+                "adjustment": adjustment,
+                "anchors": chip_anchors,
+            },
         }
         return jsonify(result)
     except Exception as e:

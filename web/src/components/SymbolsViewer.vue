@@ -107,52 +107,93 @@
         </div>
         <div v-if="errorMsg" class="chart-error" role="alert">{{ errorMsg }}</div>
         <p v-if="selectedSymbol && !symbolsLoading && !selectedInMarket" class="outside-market">当前股票不在所选股票池中，可从左侧选择成分股。</p>
-    <div class="indicator-tags" v-if="rawData.length">
-      <span class="row-label">MA</span>
-      <el-tag
-        v-for="p in maPeriods" :key="p"
-        :color="enabledMA.has(p) ? maColor(p) : undefined"
-        :effect="enabledMA.has(p) ? 'dark' : 'plain'"
-        :style="enabledMA.has(p) ? `color:#fff;border-color:transparent` : `color:${maColor(p)}`"
-        @click="toggleMA(p)"
-        class="ind-tag"
-      >MA{{ p }}</el-tag>
-    </div>
-
     <div class="chart-stage" v-loading="dataLoading">
-      <div ref="chartDom" class="chart-container" v-show="rawData.length"></div>
+      <div ref="chartDom" class="chart-container" :class="{ 'with-chip-panel': showWinnerRate }" v-show="rawData.length"></div>
       <div v-if="!rawData.length && !dataLoading" class="chart-empty">
         <strong>{{ selectedSymbol ? '暂无行情数据' : '从左侧选择股票' }}</strong>
         <span>{{ selectedSymbol ? '可调整日期范围，或选择其他股票。' : '选择指数后，点击成分股即可查看 K 线。' }}</span>
       </div>
     </div>
 
-    <div class="indicator-tags lower-tags" v-if="rawData.length">
-      <span class="row-label">Indicator</span>
-      <el-tag
-        v-for="f in indicatorFields" :key="f"
-        :color="enabledIndicators.has(f) ? indColor(f) : undefined"
-        :effect="enabledIndicators.has(f) ? 'dark' : 'plain'"
-        :style="enabledIndicators.has(f) ? 'color:#fff;border-color:transparent' : ''"
-        @click="toggleIndicator(f)"
-        class="ind-tag"
-      >{{ f }}</el-tag>
-      <span v-if="!indicatorFields.length" class="row-empty">no indicator fields</span>
-    </div>
-
-    <div class="indicator-tags lower-tags" v-if="rawData.length && pitFactorFields.length">
-      <span class="row-label">PIT</span>
-      <el-tag
-        v-for="f in pitFactorFields" :key="`pit_${f}`"
-        :color="enabledPit.has(f) ? pitColor(f) : undefined"
-        :effect="enabledPit.has(f) ? 'dark' : 'plain'"
-        :style="enabledPit.has(f) ? 'color:#fff;border-color:transparent' : ''"
-        @click="togglePit(f)"
-        class="ind-tag"
-      >{{ f }}{{ pitOverlayFields.includes(f) ? ' ⓘ' : '' }}</el-tag>
-      <span class="row-empty">ⓘ = overlay on K-line; others in indicator panel</span>
-    </div>
       </section>
+
+      <aside class="indicator-sidebar" aria-label="指标设置">
+        <div class="settings-heading"><h2>指标设置</h2></div>
+        <div class="settings-content">
+          <div class="settings-scroll">
+            <p v-if="!rawData.length" class="settings-empty">
+              {{ dataLoading ? '正在加载指标…' : selectedSymbol ? '当前暂无可选指标' : '选择股票后查看指标' }}
+            </p>
+            <div v-show="rawData.length">
+              <details class="indicator-group ma-settings" open>
+                <summary>均线 MA</summary>
+                <div class="indicator-tags">
+                  <el-tag
+                    v-for="p in maPeriods" :key="p"
+                    :color="enabledMA.has(p) ? maColor(p) : undefined"
+                    :effect="enabledMA.has(p) ? 'dark' : 'plain'"
+                    :style="enabledMA.has(p) ? `color:#fff;border-color:transparent` : `color:${maColor(p)}`"
+                    :title="rawDataFull.length < p ? `历史不足：当前 ${rawDataFull.length} 个交易日，MA${p} 需要 ${p} 个交易日` : `MA${p}：${p} 个交易日收盘价的平均值`"
+                    @click="toggleMA(p)"
+                    class="ind-tag ma-tag"
+                  >MA{{ p }}{{ rawDataFull.length < p ? ' · 待形成' : '' }}</el-tag>
+                </div>
+                <p v-if="unformedMA.length" class="ma-history-hint" role="status">
+                  截至所选结束日期，历史行情共 {{ rawDataFull.length }} 个交易日，
+                  {{ unformedMA.map(p => `MA${p}`).join('、') }} 历史不足，暂未形成。
+                </p>
+              </details>
+
+              <details class="indicator-group chip-settings" v-if="availableChipLayers.length" open>
+                <summary>筹码</summary>
+                <div class="indicator-tags chip-tags">
+                  <template v-if="hasChipData">
+                    <el-tag
+                      v-for="layer in availableChipLayers" :key="layer.key"
+                      :color="enabledChips.has(layer.key) ? layer.color : undefined"
+                      :effect="enabledChips.has(layer.key) ? 'dark' : 'plain'"
+                      :style="enabledChips.has(layer.key) ? 'color:#fff;border-color:transparent' : ''"
+                      @click="toggleChip(layer.key)"
+                      class="ind-tag chip-tag"
+                    >{{ layer.label }}</el-tag>
+                  </template>
+                  <span v-else class="row-empty">当前区间暂无筹码数据</span>
+                </div>
+              </details>
+
+              <details class="indicator-group technical-settings" open>
+                <summary>Indicator</summary>
+                <div class="indicator-tags">
+                  <el-tag
+                    v-for="f in indicatorFields" :key="f"
+                    :color="enabledIndicators.has(f) ? indColor(f) : undefined"
+                    :effect="enabledIndicators.has(f) ? 'dark' : 'plain'"
+                    :style="enabledIndicators.has(f) ? 'color:#fff;border-color:transparent' : ''"
+                    @click="toggleIndicator(f)"
+                    class="ind-tag technical-tag"
+                  >{{ f }}</el-tag>
+                  <span v-if="!indicatorFields.length" class="row-empty">暂无技术指标</span>
+                </div>
+              </details>
+
+              <details class="indicator-group pit-settings" v-if="pitFactorFields.length" open>
+                <summary>PIT</summary>
+                <div class="indicator-tags">
+                  <el-tag
+                    v-for="f in pitFactorFields" :key="`pit_${f}`"
+                    :color="enabledPit.has(f) ? pitColor(f) : undefined"
+                    :effect="enabledPit.has(f) ? 'dark' : 'plain'"
+                    :style="enabledPit.has(f) ? 'color:#fff;border-color:transparent' : ''"
+                    @click="togglePit(f)"
+                    class="ind-tag"
+                  >{{ f }}{{ pitOverlayFields.includes(f) ? ' ⓘ' : '' }}</el-tag>
+                  <span class="row-empty">ⓘ 叠加在主图，其余显示在副图</span>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
@@ -161,6 +202,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, h } from "vue";
 import { getSymbols, getOHLCV, getDataRange, getMarkets, getInstruments, getMarketSnapshot } from "@/utils/api";
 import { snapshotSortFields, snapshotNumber, formatSnapshotNumber } from "@/utils/marketSnapshot";
+import { chipLayers, chipNumber } from "@/utils/chips";
 import type { PriceAdjustment } from "@/utils/api";
 import * as echarts from "echarts";
 import MarketSnapshot from "./MarketSnapshot.vue";
@@ -396,6 +438,13 @@ const rawData = ref<Record<string, any>[]>([]);
 // so long moving averages (e.g. MA250) can be computed. `rawData` is the
 // displayed slice (date >= userStart); `rawDataFull` is used only for MA calc.
 const rawDataFull = ref<Record<string, any>[]>([]);
+const unformedMA = computed(() => maPeriods.filter(p => enabledMA.value.has(p) && rawDataFull.value.length < p));
+const chipFields = ref<string[]>([]);
+const enabledChips = ref<Set<string>>(new Set());
+let chipDefaultsApplied = false;
+const availableChipLayers = computed(() => chipLayers.filter(layer => layer.fields.every(field => chipFields.value.includes(field))));
+const hasChipData = computed(() => rawData.value.some(row => chipFields.value.some(field => chipNumber(row[field]) != null)));
+const showWinnerRate = computed(() => enabledChips.value.has("winner_rate") && rawData.value.some(row => chipNumber(row.winner_rate) != null));
 const userStart = ref<string>("");
 const chartDom = ref<HTMLElement | null>(null);
 let chartInstance: echarts.ECharts | null = null;
@@ -501,6 +550,9 @@ watch(() => props.region, async () => {
   pitOverlayFields.value = [];
   enabledPit.value = new Set();
   defaultsApplied.value = false;
+  chipDefaultsApplied = false;
+  chipFields.value = [];
+  enabledChips.value = new Set();
   if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
   loadSymbols();
   await Promise.all([loadLatestDate(), loadMarkets()]);
@@ -641,6 +693,11 @@ async function fetchData() {
     rawDataFull.value = normalized;
     // Displayed slice: only dates within the user's selected [start, end] window.
     rawData.value = normalized.filter((r) => r.date >= start && r.date <= end);
+    chipFields.value = [...(res.chips?.price_fields || []), ...(res.chips?.rate_fields || [])];
+    if (!chipDefaultsApplied) {
+      enabledChips.value = new Set(res.chips?.default_layers || []);
+      chipDefaultsApplied = true;
+    }
     const strip = (arr: any[]) => (arr || []).map((s: string) => s.startsWith("$") ? s.slice(1) : s);
     const ohlcv = strip(res.ohlcv_fields || []);
     const tech = strip(res.tech_fields || []);
@@ -682,6 +739,13 @@ function toggleMA(p: number) {
   const s = new Set(enabledMA.value);
   if (s.has(p)) s.delete(p); else s.add(p);
   enabledMA.value = s;
+  renderChart();
+}
+async function toggleChip(key: string) {
+  const selected = new Set(enabledChips.value);
+  if (selected.has(key)) selected.delete(key); else selected.add(key);
+  enabledChips.value = selected;
+  await nextTick();
   renderChart();
 }
 function toggleIndicator(f: string) {
@@ -726,6 +790,8 @@ function renderChart() {
   const overlayPit = pitFactorFields.value.filter((f) => enabledPit.value.has(f) && pitOverlayFields.value.includes(f));
   const lowerPit = pitFactorFields.value.filter((f) => enabledPit.value.has(f) && !pitOverlayFields.value.includes(f));
   const maList = maPeriods.filter((p) => enabledMA.value.has(p));
+  const selectedChipLayers = availableChipLayers.value.filter(layer => enabledChips.value.has(layer.key));
+  const winnerPanel = showWinnerRate.value;
 
   // MA uses the full lookback data (rawDataFull) so long periods (MA500) have
   // enough history, then slices to the displayed window. `rawData` is a
@@ -767,7 +833,40 @@ function renderChart() {
     } as any);
   });
 
-  // PIT overlay on K-line (right-side secondary axes, e.g. PE_MA60/PB_MA60).
+  // Cost lines and shaded intervals use the SAME price axis as candlesticks.
+  // Draw the wide band first so the narrower 70% band remains visible.
+  const costLayers = [...selectedChipLayers].filter(layer => !layer.rate).sort((a, b) =>
+    (a.key === "band_90" ? -1 : b.key === "band_90" ? 1 : 0));
+  costLayers.forEach(layer => {
+    if (layer.band) {
+      const [lower, upper] = layer.band;
+      const bounds = rawData.value.map(row => {
+        const lo = chipNumber(row[lower]), hi = chipNumber(row[upper]);
+        return lo != null && hi != null && hi >= lo ? [lo, hi - lo] : [null, null];
+      });
+      series.push({
+        name: `${layer.key}_base`, type: "line", data: bounds.map(pair => pair[0]),
+        stack: layer.key, xAxisIndex: 0, yAxisIndex: 0, symbol: "none",
+        lineStyle: { opacity: 0 }, areaStyle: { opacity: 0 },
+        silent: true, tooltip: { show: false }, connectNulls: false, z: 0,
+      } as any);
+      series.push({
+        name: layer.label, type: "line", data: bounds.map(pair => pair[1]),
+        stack: layer.key, xAxisIndex: 0, yAxisIndex: 0, symbol: "none",
+        lineStyle: { opacity: 0 }, areaStyle: { color: layer.color, opacity: layer.key === "band_70" ? 0.13 : 0.06 },
+        silent: true, tooltip: { show: false }, connectNulls: false, z: 0,
+      } as any);
+    } else {
+      series.push({
+        name: layer.label, type: "line", data: rawData.value.map(row => chipNumber(row[layer.key])),
+        xAxisIndex: 0, yAxisIndex: 0, symbol: "none", connectNulls: false,
+        lineStyle: { color: layer.color, width: layer.key === "weight_avg" ? 2.2 : 1.2, type: layer.key === "weight_avg" ? "solid" : "dashed" },
+        itemStyle: { color: layer.color }, z: 4,
+      } as any);
+    }
+  });
+
+  // PIT overlay on K-line (right-side secondary axes, e.g. pe_ma60/pb_ma60).
   overlayPit.forEach((f, i) => {
     legendData.push(f);
     const col = pitColor(f);
@@ -819,6 +918,23 @@ function renderChart() {
   lowerAll.forEach((_, idx) => {
     if (idx > 0) yAxis.push({ gridIndex: 1, scale: true, splitNumber: 2, splitLine: { show: false } });
   });
+  if (winnerPanel) {
+    const layer = chipLayers.find(layer => layer.key === "winner_rate")!;
+    const axis = yAxis.length;
+    yAxis.push({
+      gridIndex: 2, min: 0, max: 100, interval: 50,
+      name: "获利筹码比例", nameTextStyle: { color: layer.color, fontSize: 11 },
+      axisLabel: { formatter: "{value}%", fontSize: 10 },
+      splitLine: { lineStyle: { color: "#edf2f2" } },
+    });
+    series.push({
+      name: layer.label, type: "line", data: rawData.value.map(row => chipNumber(row.winner_rate)),
+      xAxisIndex: 2, yAxisIndex: axis, symbol: "none", connectNulls: false,
+      lineStyle: { color: layer.color, width: 1.5 }, itemStyle: { color: layer.color },
+      areaStyle: { color: layer.color, opacity: 0.08 },
+    } as any);
+  }
+  const linkedAxes = winnerPanel ? [0, 1, 2] : [0, 1];
 
   // Widen right margin when overlay axes are present so their labels fit.
   const gridRight = 50 + overlayAxes * 30;
@@ -846,6 +962,14 @@ function renderChart() {
         overlayPit.forEach((f) => {
           lines.push(`${f}: ${fmtNum(row[f])}`);
         });
+        selectedChipLayers.forEach(layer => {
+          if (layer.band) {
+            const [lower, upper] = layer.band;
+            lines.push(`${layer.label}: ${fmtNum(row[lower])} ~ ${fmtNum(row[upper])}`);
+          } else {
+            lines.push(`${layer.label}: ${fmtNum(row[layer.key])}${layer.rate && chipNumber(row[layer.key]) != null ? '%' : ''}`);
+          }
+        });
         return lines.join("<br/>");
       },
     },
@@ -856,24 +980,26 @@ function renderChart() {
     legend: { show: false, data: legendData },
     axisPointer: { link: [{ xAxisIndex: "all" }] },
     grid: [
-      { left: 70, right: gridRight, top: 36, height: "56%" },
-      { left: 70, right: 50, top: "72%", height: "20%" },
+      { left: 70, right: gridRight, top: 36, height: winnerPanel ? "48%" : "56%" },
+      { left: 70, right: 50, top: winnerPanel ? "61%" : "72%", height: winnerPanel ? "13%" : "20%" },
+      ...(winnerPanel ? [{ left: 70, right: 50, top: "81%", height: "11%" }] : []),
     ],
     xAxis: [
       { type: "category", data: dates, gridIndex: 0, scale: true, boundaryGap: true, axisLabel: { show: false } },
-      { type: "category", data: dates, gridIndex: 1, scale: true, boundaryGap: true },
+      { type: "category", data: dates, gridIndex: 1, scale: true, boundaryGap: true, axisLabel: { show: !winnerPanel } },
+      ...(winnerPanel ? [{ type: "category", data: dates, gridIndex: 2, scale: true, boundaryGap: true }] : []),
     ],
     yAxis,
     dataZoom: [
       {
-        type: "inside", xAxisIndex: [0, 1],
+        type: "inside", xAxisIndex: linkedAxes,
         // Disable wheel handling here so plain wheel scrolls the page;
         // pinch (ctrl+wheel) zoom is handled by onChartWheel. Drag still pans.
         zoomOnMouseWheel: false,
         moveOnMouseWheel: false,
         moveOnMouseMove: true,
       },
-      { type: "slider", xAxisIndex: [0, 1], bottom: 5, height: 18 },
+      { type: "slider", xAxisIndex: linkedAxes, bottom: 5, height: 18 },
     ],
     series,
   }, true);
@@ -881,12 +1007,12 @@ function renderChart() {
 </script>
 
 <style scoped lang="scss">
-.symbols-viewer { padding: 4px 20px 20px; }
-.split-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px; align-items: stretch; }
-.symbol-sidebar, .chart-pane { background: #fff; border: 1px solid #e5e9f0; border-radius: 12px; color: #303133; min-width: 0; }
+.symbols-viewer { padding: 4px 12px 20px; }
+.split-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr) 188px; gap: 12px; align-items: stretch; }
+.symbol-sidebar, .chart-pane, .indicator-sidebar { background: #fff; border: 1px solid #e5e9f0; border-radius: 12px; color: #303133; min-width: 0; }
 .symbol-sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden; position: relative; }
 .sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 18px 12px 14px; }
-.sidebar-heading h2, .stock-title h2 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5; }
+.sidebar-heading h2, .stock-title h2, .settings-heading h2 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5; }
 .region-badge { background: #f0f4ff; color: #5369bb; padding: 3px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; }
 .control-label { color: #7b8495; font-size: 12px; white-space: nowrap; }
 .market-select, .symbol-search { width: calc(100% - 24px) !important; margin: 0 12px 12px; }
@@ -931,20 +1057,36 @@ function renderChart() {
 .chart-stage { min-height: 480px; position: relative; }
 .chart-empty { min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #a0a7b3; font-size: 13px; }
 .chart-empty strong { font-size: 17px; color: #737d90; font-weight: 500; }
-.indicator-tags { margin-bottom: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.indicator-tags.lower-tags { margin-top: 6px; margin-bottom: 0; }
-.ind-tag { cursor: pointer; user-select: none; }
-.row-label { font-size: 12px; color: #909399; margin-right: 4px; }
+.indicator-sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden; position: relative; }
+.settings-heading { padding: 18px 12px 14px; border-bottom: 1px solid #eef0f4; }
+.settings-content { flex: 1; min-height: 0; position: relative; }
+.settings-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 12px; }
+.settings-empty { margin: 20px 0; color: #9aa1ae; font-size: 12px; line-height: 1.8; }
+.indicator-group { border-bottom: 1px solid #eef0f4; }
+.indicator-group:last-child { border-bottom: 0; }
+.indicator-group > summary { padding: 14px 0 10px; color: #737d90; font-size: 12px; font-weight: 600; cursor: pointer; user-select: none; }
+.indicator-tags { padding-bottom: 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ma-history-hint { margin: -4px 0 14px; color: #909399; font-size: 12px; line-height: 1.7; }
+.ind-tag { cursor: pointer; user-select: none; max-width: 100%; box-sizing: border-box; }
+.ind-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-empty { font-size: 12px; color: #c0c4cc; }
 .chart-container { width: 100%; height: clamp(480px, 62vh, 700px); }
+.chart-container.with-chip-panel { height: clamp(560px, 72vh, 820px); }
 @media (max-width: 1100px) {
-  .split-layout { grid-template-columns: 180px minmax(0, 1fr); gap: 10px; }
+  .split-layout { grid-template-columns: 180px minmax(0, 1fr) 168px; gap: 10px; }
   .chart-pane { padding: 16px; }
   .symbols-viewer { padding: 4px 12px 16px; }
+}
+@media (max-width: 1000px) {
+  .split-layout { grid-template-columns: 180px minmax(0, 1fr); }
+  .indicator-sidebar { grid-column: 1 / -1; height: 320px; }
+  .settings-scroll > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 }
 @media (max-width: 700px) {
   .split-layout { grid-template-columns: minmax(0, 1fr); }
   .symbol-sidebar { position: static; height: 400px; }
+  .indicator-sidebar { grid-column: auto; height: 400px; }
+  .settings-scroll > div { display: block; }
   .chart-heading { align-items: flex-start; }
   .stock-title { gap: 5px 10px; }
   .stock-title h2 { font-size: 19px; }

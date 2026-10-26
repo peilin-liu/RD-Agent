@@ -6,6 +6,21 @@
       "benchmark": "000300.sh",
       "industry_csv_path": "/data/qlib_data/standard_csv/industry_reference/cn/symbol_industry.csv",
       "price_adjustment": "qfq",
+      "chips": {
+        "price_adjustment": "qfq",
+        "price_fields": {
+          "cost_5pct": "$cost_5pct",
+          "cost_15pct": "$cost_15pct",
+          "cost_50pct": "$cost_50pct",
+          "cost_85pct": "$cost_85pct",
+          "cost_95pct": "$cost_95pct",
+          "weight_avg": "$weight_avg",
+          "his_low": "$his_low",
+          "his_high": "$his_high"
+        },
+        "rate_fields": {"winner_rate": "$winner_rate"},
+        "default_layers": ["weight_avg", "band_70", "winner_rate"]
+      },
       "ohlcv_fields": {
         "open": "$open/$factor",
         "high": "$high/$factor",

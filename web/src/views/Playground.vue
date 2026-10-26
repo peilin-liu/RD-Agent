@@ -452,7 +452,7 @@
           </div>
         </div>
       </div>
-      <div class="main-content" v-show="showPanel == 4">
+      <div class="main-content data-explorer-content" v-show="showPanel == 4">
         <SymbolsViewer :region="currentRegion" :key="symbolsViewerKey" />
       </div>
     </div>
@@ -1447,6 +1447,9 @@ onMounted(async () => {
   padding: 4em 0 5em;
   padding: 3.6em 0 4.5em;
   padding: 1.2em 0 0;
+  &.data-explorer-content {
+    max-width: none;
+  }
   &.split-two {
     display: flex;
     justify-content: space-around;

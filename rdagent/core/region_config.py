@@ -66,6 +66,14 @@ after querying the nominal fields. Front adjustment uses each instrument's
 latest valid factor in the complete dataset, independent of the chart window.
 Market snapshots always use the nominal fields.
 
+`chips` optionally configures cost-distribution overlays: `price_fields` maps
+cost aliases to Qlib expressions, `rate_fields` maps percentage aliases, and
+`default_layers` lists initially enabled fields or `band_70` / `band_90`.
+`chips.price_adjustment` must be `qfq`: vendor costs must share the latest
+market-data front-adjustment anchor. Reconcile vendor history after corporate
+actions before mixing snapshots collected on different adjustment anchors.
+The API converts cost prices with the chart mode; percentage fields stay 0–100.
+
 `pit_factors` (optional): map of factor name → Qlib expression. Despite the
 legacy name, these need NOT use PIT financial data — they are regular Qlib
 expressions over any field in `{qlib_data_path}/features/`. With a tushare
@@ -145,6 +153,7 @@ class RegionInfo:
     # latest predictions_*.csv from the configured path into the index view.
     predictions: dict = field(default_factory=dict)
     price_adjustment: str = "qfq"
+    chips: dict = field(default_factory=dict)
 
 
 def _load_config() -> dict:
@@ -194,6 +203,16 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
         price_adjustment = ri.get("price_adjustment", "qfq")
         if price_adjustment not in ("none", "qfq", "hfq"):
             raise ValueError(f"Invalid price_adjustment for {region}: {price_adjustment}")
+        chips = ri.get("chips") or {}
+        if chips and chips.get("price_adjustment", "qfq") != "qfq":
+            raise ValueError(f"Unsupported chips.price_adjustment for {region}; expected qfq")
+        chips = {
+            **chips,
+            "price_fields": _normalize_fields(chips.get("price_fields")),
+            "rate_fields": _normalize_fields(chips.get("rate_fields")),
+        } if chips else {}
+        if set(chips.get("price_fields", {})) & set(chips.get("rate_fields", {})):
+            raise ValueError(f"Overlapping chip price/rate aliases for {region}")
         return RegionInfo(
             qlib_data_path=_resolve_path(ri["qlib_data_path"]),
             market=ri["market"],
@@ -207,6 +226,7 @@ def get_region_config(region: Optional[str] = None) -> RegionInfo:
             pit_overlay_fields=pit_overlay,
             predictions=predictions,
             price_adjustment=price_adjustment,
+            chips=chips,
         )
 
     if region in _DEFAULT_REGIONS:

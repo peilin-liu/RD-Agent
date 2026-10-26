@@ -68,6 +68,14 @@ declare module '@/utils/api' {
     pit_overlay_fields?: string[];
     adjustment?: PriceAdjustment | 'stored';
     adjustment_anchors?: Record<string, { date: string; factor: number }>;
+    chips?: {
+      price_fields: string[];
+      rate_fields: string[];
+      default_layers: string[];
+      source_adjustment: string | null;
+      adjustment: PriceAdjustment;
+      anchors: Record<string, { date: string; factor: number }>;
+    };
     error?: string;
   }>;
   export interface ScenarioDataSplit {
