@@ -29,15 +29,26 @@
         />
         <el-input v-model="symbolSearch" placeholder="搜索代码或名称" clearable class="symbol-search" aria-label="搜索成分股" />
         <div class="symbol-sort">
-          <el-select-v2
-            v-model="symbolSort"
-            :options="symbolSortOptions"
-            :loading="metricsLoading"
-            class="symbol-sort-select"
-            aria-label="成分股排序指标"
-            placeholder="排序指标"
-            @change="onSymbolSortChange"
-          />
+          <el-tooltip :content="sortField.label" placement="right" :show-after="200" :hide-after="0" :enterable="false" :disabled="sortMenuOpen">
+            <div class="symbol-sort-select">
+              <el-select-v2
+                v-model="symbolSort"
+                :options="symbolSortOptions"
+                :loading="metricsLoading"
+                class="symbol-sort-select"
+                aria-label="成分股排序指标"
+                placeholder="排序指标"
+                @change="onSymbolSortChange"
+                @visible-change="sortMenuOpen = $event"
+              >
+                <template #default="{ item }">
+                  <el-tooltip :content="item.label" placement="right" :show-after="200" :hide-after="0" :enterable="false">
+                    <span class="sort-option-label">{{ item.label }}</span>
+                  </el-tooltip>
+                </template>
+              </el-select-v2>
+            </div>
+          </el-tooltip>
           <el-button class="sort-direction" :aria-label="sortOrder === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'" @click="toggleSortOrder">
             {{ sortOrder === 'asc' ? '升序 ↑' : '降序 ↓' }}
           </el-button>
@@ -45,10 +56,6 @@
         <div class="list-summary">
           <span>{{ marketLabel(selectedMarket) }}</span>
           <span>{{ filteredSymbols.length }} / {{ constituents.length }} 只</span>
-        </div>
-        <div v-if="showSortValue" class="metric-caption">
-          <span>{{ metricsDate || latestTradingDate }}</span>
-          <span>{{ sortField.label }}</span>
         </div>
         <div v-if="symbolsError" class="sidebar-error" role="alert">
           {{ symbolsError }}
@@ -58,7 +65,7 @@
           {{ metricsError }}
           <el-button link type="primary" @click="loadMetrics()">重试</el-button>
         </div>
-        <div class="symbol-list" v-loading="symbolsLoading">
+        <div class="symbol-list" v-loading="symbolsLoading || (screenActive && metricsLoading)">
           <el-auto-resizer v-if="filteredSymbols.length">
             <template #default="{ height, width }">
               <el-table-v2
@@ -77,14 +84,34 @@
               />
             </template>
           </el-auto-resizer>
-          <div v-else-if="!symbolsLoading && !symbolsError" class="list-empty">
-            {{ symbolSearch ? '没有匹配的股票' : '该股票池暂无可用成分股' }}
+          <div v-else-if="!symbolsLoading && !symbolsError && !metricsLoading" class="list-empty">
+            {{ screenActive || symbolSearch ? '没有匹配的股票，请调整筛选条件或搜索内容' : '该股票池暂无可用成分股' }}
           </div>
         </div>
         <div class="sidebar-footer">点击股票，在右侧查看 K 线</div>
       </aside>
 
       <section class="chart-pane" aria-label="股票 K 线">
+        <div class="controls-row">
+          <span class="control-label">日期范围</span>
+          <el-date-picker v-model="startDate" type="date" placeholder="开始日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
+          <span class="date-separator">至</span>
+          <el-date-picker v-model="endDate" type="date" placeholder="结束日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
+          <el-select-v2 v-model="adjustment" :options="adjustmentOptions" class="adjustment-select" aria-label="价格复权方式" @change="onAdjustmentChange" />
+          <el-button type="primary" @click="refreshData" :loading="dataLoading || metricsLoading" size="small">刷新</el-button>
+          <StockScreener v-model="stockScreen" :symbols="constituents" :metrics="metricsBySymbol" :market="marketLabel(selectedMarket)"
+            :date="metricsDate || screeningDate" :loading="metricsLoading || symbolsLoading" :ready="metricsLoaded" :error="metricsError" @retry="loadMetrics()" />
+          <div v-if="screenActive" class="screen-controls" role="group" aria-label="已选筛选条件" aria-live="polite">
+            <div class="screen-tags">
+              <el-tag v-if="stockScreen.industry" size="small" closable @close="stockScreen.industry = ''">{{ stockScreen.industry }}</el-tag>
+              <template v-for="period in maScreenPeriods" :key="period">
+                <el-tag v-if="stockScreen.maDirections[period]" size="small" closable @close="stockScreen.maDirections[period] = ''">MA{{ period }} {{ maDirectionLabels[stockScreen.maDirections[period] as 'up' | 'flat' | 'down'] }}</el-tag>
+              </template>
+              <el-tag v-for="(rule, index) in stockScreen.rules" :key="index" size="small" closable @close="stockScreen.rules.splice(index, 1)">{{ screeningRuleLabel(rule) }}</el-tag>
+            </div>
+            <el-button link type="primary" @click="stockScreen = emptyScreen()">清除筛选</el-button>
+          </div>
+        </div>
         <div class="chart-heading">
           <div class="stock-title">
             <h2>{{ selectedInfo?.name || selectedSymbol || '选择一只股票' }}</h2>
@@ -97,16 +124,9 @@
           </div>
           <el-button tag="a" :href="marketHref" plain @click.left.exact.prevent="switchToMarket" size="small">市场行情表</el-button>
         </div>
-        <div class="controls-row">
-          <span class="control-label">日期范围</span>
-          <el-date-picker v-model="startDate" type="date" placeholder="开始日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
-          <span class="date-separator">至</span>
-          <el-date-picker v-model="endDate" type="date" placeholder="结束日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
-          <el-select-v2 v-model="adjustment" :options="adjustmentOptions" class="adjustment-select" aria-label="价格复权方式" @change="onAdjustmentChange" />
-          <el-button type="primary" @click="fetchData" :loading="dataLoading" :disabled="!selectedSymbol" size="small">刷新</el-button>
-        </div>
         <div v-if="errorMsg" class="chart-error" role="alert">{{ errorMsg }}</div>
         <p v-if="selectedSymbol && !symbolsLoading && !selectedInMarket" class="outside-market">当前股票不在所选股票池中，可从左侧选择成分股。</p>
+        <p v-else-if="selectedSymbol && screenActive && metricsLoaded && !screenedSymbols.some(s => s.symbol === selectedSymbol)" class="outside-market">当前股票不符合筛选条件，可从左侧选择命中的股票。</p>
     <div class="chart-stage" v-loading="dataLoading">
       <div ref="chartDom" class="chart-container" :class="{ 'with-chip-panel': showWinnerRate }" v-show="rawData.length"></div>
       <div v-if="!rawData.length && !dataLoading" class="chart-empty">
@@ -206,6 +226,8 @@ import { chipLayers, chipNumber } from "@/utils/chips";
 import type { PriceAdjustment } from "@/utils/api";
 import * as echarts from "echarts";
 import MarketSnapshot from "./MarketSnapshot.vue";
+import StockScreener from "./StockScreener.vue";
+import { emptyScreen, maDirectionLabels, maScreenPeriods, matchesScreen, screenCount, screeningRuleLabel } from "@/utils/stockScreener";
 
 const props = defineProps<{ region: string }>();
 
@@ -251,6 +273,10 @@ const markets = ref<string[]>([]);
 const marketsLoading = ref(false);
 const selectedMarket = ref<string>((route.query.market as string) || "csi300");
 const symbolSearch = ref("");
+const stockScreen = ref(emptyScreen());
+const screenActive = computed(() => screenCount(stockScreen.value) > 0);
+const screenedSymbols = computed(() => constituents.value.filter(s =>
+  matchesScreen(s.industry_name, metricsBySymbol.value[s.symbol], stockScreen.value)));
 const symbolTableRef = ref<any>(null);
 type SnapshotRow = Awaited<ReturnType<typeof getMarketSnapshot>>["data"][number];
 const metricsBySymbol = ref<Record<string, SnapshotRow>>({});
@@ -261,6 +287,7 @@ const metricsDate = ref("");
 const hasPredictions = ref(false);
 const symbolSort = ref(snapshotSortFields.some(field => field.value === route.query.list_sort)
   ? String(route.query.list_sort) : "symbol");
+const sortMenuOpen = ref(false);
 function defaultSortOrder(key: string): "asc" | "desc" {
   return ["symbol", "name", "pred_rank"].includes(key) ? "asc" : "desc";
 }
@@ -286,6 +313,7 @@ function onSymbolSortChange() { sortOrder.value = defaultSortOrder(symbolSort.va
 function toggleSortOrder() { sortOrder.value = sortOrder.value === "asc" ? "desc" : "asc"; }
 let constituentsRequest = 0;
 let chartRequest = 0;
+let metricsRequest = 0;
 const MARKET_LABELS: Record<string, string> = {
   all: "全部股票", csi300: "沪深300", csi500: "中证500", csi1000: "中证1000",
   csi2000: "中证2000", sse50: "上证50", csi_dividend: "中证红利", csi_soe: "中证国企",
@@ -299,7 +327,7 @@ const marketOptions = computed(() => markets.value.map(m => ({
 })));
 const filteredSymbols = computed(() => {
   const query = symbolSearch.value.trim().toLowerCase();
-  const rows = constituents.value.filter(s => !query || `${s.symbol} ${s.name || ""}`.toLowerCase().includes(query));
+  const rows = screenedSymbols.value.filter(s => !query || `${s.symbol} ${s.name || ""}`.toLowerCase().includes(query));
   const direction = sortOrder.value === "asc" ? 1 : -1;
   return rows.sort((a, b) => {
     const tie = a.symbol.localeCompare(b.symbol);
@@ -373,6 +401,14 @@ function onSymbolRowClick({ rowData }: { rowData: SymbolInfo }) {
 }
 const startDate = ref<string | null>(new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10));
 const endDate = ref<string | null>(new Date().toISOString().slice(0, 10));
+const screeningDate = computed(() => {
+  const end = endDate.value || latestTradingDate.value;
+  return latestTradingDate.value && end > latestTradingDate.value ? latestTradingDate.value : end;
+});
+watch([screeningDate, adjustment], () => {
+  resetMetrics();
+  if (viewMode.value === "single") loadMetrics();
+});
 const dataLoading = ref(false);
 const errorMsg = ref("");
 
@@ -502,6 +538,7 @@ watch([symbolTableRef, filteredSymbols, selectedSymbol], async ([table, , symbol
 onBeforeUnmount(() => {
   constituentsRequest++;
   chartRequest++;
+  metricsRequest++;
   chartResizeObserver?.disconnect();
   chartDom.value?.removeEventListener("wheel", onChartWheel);
   if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
@@ -538,6 +575,7 @@ function onChartWheel(e: WheelEvent) {
 watch(() => props.region, async () => {
   chartRequest++;
   constituentsRequest++;
+  resetMetrics();
   selectedSymbol.value = "";
   constituents.value = [];
   rawData.value = [];
@@ -593,12 +631,7 @@ async function loadConstituents(preserveSelection = false) {
   symbolsError.value = "";
   constituents.value = [];
   symbolSearch.value = "";
-  metricsBySymbol.value = {};
-  metricsLoading.value = false;
-  metricsLoaded.value = false;
-  metricsError.value = "";
-  metricsDate.value = "";
-  hasPredictions.value = false;
+  resetMetrics();
   if (!preserveSelection) {
     rawData.value = [];
     rawDataFull.value = [];
@@ -624,22 +657,36 @@ async function loadConstituents(preserveSelection = false) {
   }
 }
 
+function resetMetrics() {
+  metricsRequest++;
+  metricsBySymbol.value = {};
+  metricsLoading.value = false;
+  metricsLoaded.value = false;
+  metricsError.value = "";
+  metricsDate.value = "";
+  hasPredictions.value = false;
+}
+
 async function loadMetrics(request = constituentsRequest) {
   if (request !== constituentsRequest || metricsLoading.value || metricsLoaded.value || !constituents.value.length) return;
+  const metricRequest = ++metricsRequest;
+  const isCurrent = () => request === constituentsRequest && metricRequest === metricsRequest;
   metricsLoading.value = true;
   metricsError.value = "";
   try {
-    const response = await getMarketSnapshot(props.region, selectedMarket.value);
-    if (request !== constituentsRequest) return;
-    if (!Array.isArray(response?.data)) throw apiError(response, "无法加载排序指标");
+    const response = await getMarketSnapshot(props.region, selectedMarket.value, screeningDate.value || undefined, adjustment.value);
+    if (!isCurrent()) return;
+    if (!Array.isArray(response?.data)) throw apiError(response, "无法加载选股及排序指标");
+    if (!response.screening) throw new Error("选股指标服务尚未更新，请重新加载后端服务后重试。");
+    if (!response.data.length) throw new Error("该日期暂无行情数据，请选择有数据的交易日。");
     metricsBySymbol.value = Object.fromEntries(response.data.map(row => [row.symbol, row]));
     metricsDate.value = response.date;
     hasPredictions.value = !!response.predictions;
     metricsLoaded.value = true;
   } catch (error: any) {
-    if (request === constituentsRequest) metricsError.value = error?.message || "无法加载排序指标";
+    if (isCurrent()) metricsError.value = error?.message || "无法加载选股及排序指标";
   } finally {
-    if (request === constituentsRequest) metricsLoading.value = false;
+    if (isCurrent()) metricsLoading.value = false;
   }
 }
 
@@ -650,6 +697,11 @@ async function retrySymbols() {
 }
 
 function onDateChange() { if (selectedSymbol.value) fetchData(); }
+function refreshData() {
+  fetchData();
+  resetMetrics();
+  loadMetrics();
+}
 function onAdjustmentChange() {
   adjustmentChosen = true;
   if (selectedSymbol.value) fetchData();
@@ -1018,9 +1070,8 @@ function renderChart() {
 .market-select, .symbol-search { width: calc(100% - 24px) !important; margin: 0 12px 12px; }
 .symbol-sort { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 6px; margin: 0 12px 12px; }
 .symbol-sort-select { width: 100%; min-width: 0; }
+.sort-option-label { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .symbol-sort .sort-direction { width: 52px; padding: 4px 5px; font-size: 12px; }
-.metric-caption { display: flex; justify-content: space-between; gap: 6px; padding: 7px 12px; border-bottom: 1px solid #eef0f4; color: #8b93a3; font-size: 11px; }
-.metric-caption span:last-child { color: #535d70; }
 .list-summary { display: flex; justify-content: space-between; gap: 6px; padding: 0 12px 10px; color: #8b93a3; font-size: 12px; border-bottom: 1px solid #eef0f4; }
 .list-summary span:first-child { color: #535d70; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-summary span:last-child { flex-shrink: 0; }
@@ -1042,13 +1093,17 @@ function renderChart() {
 .sidebar-footer { padding: 12px; border-top: 1px solid #eef0f4; font-size: 11px; color: #9aa1ae; }
 .sidebar-error { padding: 10px 16px; color: #c45656; font-size: 12px; line-height: 1.6; background: #fff5f5; }
 .list-empty { padding: 40px 16px; text-align: center; color: #9aa1ae; font-size: 13px; }
-.chart-pane { padding: 20px; }
+.chart-pane { padding: 14px 20px 20px; }
 .chart-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
 .stock-title { display: flex; gap: 4px 12px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
 .stock-title h2 { font-size: 22px; color: #263147; }
 .stock-code { color: #828c9e; font-size: 13px; font-variant-numeric: tabular-nums; }
 .stock-meta { font-size: 12px; color: #9aa1ae; margin: 0; }
-.controls-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; margin-bottom: 14px; border-top: 1px solid #eef0f4; border-bottom: 1px solid #eef0f4; }
+.controls-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 0 12px; margin-bottom: 14px; border-bottom: 1px solid #eef0f4; }
+.controls-row :deep(.el-button + .el-button) { margin-left: 0; }
+.screen-controls { display: flex; flex: 1 1 160px; min-width: 148px; align-items: center; gap: 8px; }
+.screen-tags { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+.screen-tags > .el-tag, .screen-controls > .el-button { flex-shrink: 0; }
 .controls-row :deep(.date-picker.el-input) { width: 154px !important; flex-grow: 0; }
 .adjustment-select { width: 110px; }
 .date-separator { color: #a0a7b3; font-size: 12px; }

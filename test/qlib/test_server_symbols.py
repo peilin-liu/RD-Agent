@@ -58,5 +58,70 @@ class SymbolsResponseTests(unittest.TestCase):
         self.assertEqual(self.load_response(), [])
 
 
+class InstrumentSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        (self.root / "calendars").mkdir()
+        (self.root / "calendars/day.txt").write_text("2026-10-22\n2026-10-23\n2026-10-26\n")
+        (self.root / "instruments").mkdir()
+        self.provider = server.QlibDataProvider.__new__(server.QlibDataProvider)
+        self.provider.provider_uri = str(self.root)
+        self.provider._symbols_meta = {"000001.SZ": {"name": "测试股票", "industry_name": "银行"}}
+
+    def write_pool(self, rows, market="csi500"):
+        (self.root / "instruments" / f"{market}.txt").write_text("\n".join(rows))
+
+    def test_lagging_index_keeps_latest_members_but_excludes_older_removals(self):
+        self.write_pool([
+            "000001.SZ\t2020-01-01\t2026-10-23",
+            "000002.SZ\t2020-01-01\t2026-10-22",
+            "000003.SZ\t2020-01-01\t2026-10-23",
+        ])
+        rows, date = self.provider.instrument_snapshot("csi500")
+        self.assertEqual(date, "2026-10-23")
+        self.assertEqual([row["symbol"] for row in rows], ["000001.SZ", "000003.SZ"])
+        self.assertEqual(rows[0]["name"], "测试股票")
+        self.assertEqual(self.provider._read_instruments("csi500"), rows)
+
+    def test_current_all_pool_still_excludes_delisted_symbols(self):
+        self.write_pool(["000001.SZ\t2020-01-01\t2026-10-26", "000002.SZ\t2020-01-01\t2024-01-01"], "all")
+        rows, date = self.provider.instrument_snapshot("all")
+        self.assertEqual(date, "2026-10-26")
+        self.assertEqual([row["symbol"] for row in rows], ["000001.SZ"])
+
+    def test_future_membership_does_not_advance_snapshot_or_add_duplicates(self):
+        self.write_pool([
+            "000001.SZ\t2020-01-01\t2026-10-23",
+            "000001.SZ\t2021-01-01\t2026-10-23",
+            "000002.SZ\t2026-11-01\t2026-12-31",
+        ])
+        rows, date = self.provider.instrument_snapshot("csi500")
+        self.assertEqual(date, "2026-10-23")
+        self.assertEqual([row["symbol"] for row in rows], ["000001.SZ"])
+
+    def test_open_or_future_end_is_clamped_to_latest_price_date(self):
+        for record in ["000001.SZ", "000001.SZ\t2020-01-01\t2099-12-31"]:
+            self.write_pool([record])
+            rows, date = self.provider.instrument_snapshot("csi500")
+            self.assertEqual(date, "2026-10-26")
+            self.assertEqual(len(rows), 1)
+
+    def test_empty_missing_or_future_only_pool_is_empty(self):
+        self.assertEqual(self.provider.instrument_snapshot("missing"), ([], ""))
+        for rows in [[], ["000001.SZ\t2026-11-01\t2026-12-31"]]:
+            self.write_pool(rows)
+            self.assertEqual(self.provider.instrument_snapshot("csi500"), ([], ""))
+
+    def test_api_exposes_membership_date(self):
+        self.write_pool(["000001.SZ\t2020-01-01\t2026-10-23"])
+        with patch.object(server, "_get_provider", return_value=self.provider):
+            response = server.app.test_client().get("/api/instruments/cn?market=csi500")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["constituents_date"], "2026-10-23")
+        self.assertEqual(len(response.get_json()["instruments"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

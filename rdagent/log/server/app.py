@@ -1093,35 +1093,51 @@ class QlibDataProvider:
         self._symbols_meta = meta
 
     def _read_instruments(self, market: str) -> list[dict]:
-        """Read {qlib_data_path}/instruments/{market}.txt, return active symbols.
+        """Return members of the pool's latest available snapshot."""
+        rows, _ = self.instrument_snapshot(market)
+        return rows
 
-        Format: symbol\tstart_date\tend_date (tab-separated). Drops symbols whose
-        end_date precedes the calendar's last trading day (delisted/inactive).
+    def instrument_snapshot(self, market: str) -> tuple[list[dict], str]:
+        """Resolve membership against the pool's coverage, not the price calendar.
+
+        Index membership files may be updated later than daily prices. Their
+        maximum interval end is the last known membership snapshot, not a mass
+        removal date. Keep only intervals covering that snapshot and de-duplicate
+        symbols with multiple intervals. Never include future membership.
         """
         inst_path = Path(self.provider_uri) / "instruments" / f"{market}.txt"
         if not inst_path.is_file():
-            return []
+            return [], ""
         _, last_date = self.data_range
-        rows: list[dict] = []
+        intervals: list[tuple[str, str, str]] = []
         with open(inst_path, encoding="utf-8") as f:
             for ln in f:
                 parts = ln.strip().split("\t")
-                if len(parts) < 1 or not parts[0]:
+                if not parts[0]:
                     continue
                 sym = parts[0]
                 start = parts[1] if len(parts) > 1 else ""
                 end = parts[2] if len(parts) > 2 else ""
-                if last_date and end and end < last_date:
-                    continue  # delisted before latest trading day
-                meta = self._symbols_meta.get(sym, {})
-                rows.append({
-                    "symbol": sym,
-                    "name": meta.get("name", ""),
-                    "listing_date": meta.get("listing_date", "") or start,
-                    "industry_code": meta.get("industry_code", ""),
-                    "industry_name": meta.get("industry_name", ""),
-                })
-        return rows
+                if last_date and start and start > last_date:
+                    continue
+                intervals.append((sym, start, end))
+        if not intervals:
+            return [], ""
+        coverage_end = max(end or last_date for _, _, end in intervals)
+        snapshot_date = min(last_date, coverage_end) if last_date and coverage_end else last_date or coverage_end
+        rows: dict[str, dict] = {}
+        for sym, start, end in intervals:
+            if snapshot_date and ((start and start > snapshot_date) or (end and end < snapshot_date)):
+                continue
+            meta = self._symbols_meta.get(sym, {})
+            rows[sym] = {
+                "symbol": sym,
+                "name": meta.get("name", ""),
+                "listing_date": meta.get("listing_date", "") or start,
+                "industry_code": meta.get("industry_code", ""),
+                "industry_name": meta.get("industry_name", ""),
+            }
+        return list(rows.values()), snapshot_date
 
     # Snapshot columns shown in the market-snapshot table. Keys are display
     # aliases; expressions are resolved from config ohlcv_fields/tech_fields at
@@ -1183,6 +1199,40 @@ class QlibDataProvider:
                 row[alias] = _num(r.get(alias))
             out.append(row)
         return out
+
+    def screening_metrics(self, symbols: list[str], date: str, adjustment: str) -> dict[str, dict]:
+        from rdagent.log.server.screening import historical_screening_metrics
+
+        if not symbols:
+            return {}
+        fields = {}
+        if self.ohlcv_fields.get("close"):
+            fields["close"] = self.ohlcv_fields["close"]
+        if self.tech_fields.get("volume"):
+            fields["volume"] = self.tech_fields["volume"]
+        elif self.ohlcv_fields.get("volume"):
+            fields["volume"] = self.ohlcv_fields["volume"]
+        winner = getattr(self, "chips", {}).get("rate_fields", {}).get("winner_rate")
+        if winner:
+            fields["winner_rate"] = winner
+        if not fields:
+            return {}
+        expressions = list(dict.fromkeys(fields.values()))
+        helper = {"qfq": "$factor", "hfq": "$factor*$adjclose/$close"}.get(adjustment)
+        if "close" in fields and helper and helper not in expressions:
+            expressions.append(helper)
+        calendar_path = Path(self.provider_uri) / "calendars" / "day.txt"
+        trading_dates = sorted(day.strip() for day in calendar_path.read_text().splitlines() if day.strip() and day.strip() <= date)
+        if not trading_dates:
+            return {}
+        start = trading_dates[-250:][0]
+        history = self.query(symbols, expressions, start, date)
+        if history.empty:
+            return {}
+        if "close" in fields:
+            history, _ = self.adjust_prices(history, adjustment, [fields["close"]])
+        history = pd.DataFrame({alias: history[expression] for alias, expression in fields.items()}, index=history.index)
+        return historical_screening_metrics(history, date)
 
     def _parse_date(self, s: str) -> str:
         return pd.Timestamp(s).strftime("%Y-%m-%d")
@@ -1516,17 +1566,17 @@ def get_benchmarks():
 
 @app.route("/api/instruments/<region>", methods=["GET"])
 def get_instruments(region: str):
-    """Return active symbols for a market classification.
+    """Return symbols from a market's latest available membership snapshot.
 
-    Query: ?market=csi300  -> reads instruments/csi300.txt, drops delisted, joins
-    symbols_meta for name/industry. Default market = the region's configured market.
+    Query: ?market=csi300 -> reads instruments/csi300.txt and joins metadata.
+    constituents_date reports the pool's coverage, independently of price data.
     """
     market = request.args.get("market") or "all"
     provider = _get_provider(region)
     if provider is None:
         return jsonify({"error": f"Region '{region}' not loaded"}), 503
-    rows = provider._read_instruments(market)
-    return jsonify({"region": region, "market": market, "instruments": rows}), 200
+    rows, date = provider.instrument_snapshot(market)
+    return jsonify({"region": region, "market": market, "instruments": rows, "constituents_date": date}), 200
 
 
 @app.route("/api/market_snapshot/<region>", methods=["GET"])
@@ -1544,8 +1594,17 @@ def get_market_snapshot(region: str):
     date = request.args.get("date")
     if not date:
         _, date = provider.data_range
+    screening = request.args.get("screening") == "1"
+    adjustment = request.args.get("adjustment") or provider.price_adjustment
+    if screening and adjustment not in ("none", "qfq", "hfq"):
+        return jsonify({"error": "adjustment must be none, qfq or hfq"}), 400
     try:
+        date = provider._parse_date(date)
         rows = provider.market_snapshot(market, date)
+        if screening:
+            metrics = provider.screening_metrics([row["symbol"] for row in rows], date, adjustment)
+            for row in rows:
+                row.update(metrics.get(row["symbol"], {}))
     except Exception as e:
         import traceback as tb
         return jsonify({"error": str(e), "trace": tb.format_exc()}), 500
@@ -1575,6 +1634,7 @@ def get_market_snapshot(region: str):
         "region": region, "market": market, "date": date,
         "symbols_count": len(rows), "data": rows,
         "predictions": predictions,
+        "screening": screening,
     }), 200
 
 

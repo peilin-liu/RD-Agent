@@ -3,6 +3,8 @@ export const snapshotSortFields = [
   { value: "name", label: "股票名称" },
   { value: "pct_chg", label: "涨跌幅", percent: true },
   { value: "turnover", label: "换手率", percent: true },
+  { value: "winner_rate", label: "获利筹码比例", percent: true },
+  { value: "winner_rate_position_250d", label: "获利筹码250日位置", percent: true },
   { value: "volume", label: "成交量" },
   { value: "amount", label: "成交额" },
   { value: "close", label: "收盘价" },

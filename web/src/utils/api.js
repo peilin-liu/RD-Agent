@@ -141,9 +141,13 @@ export function getInstruments(region, market) {
     })
 }
 
-export function getMarketSnapshot(region, market, date) {
+export function getMarketSnapshot(region, market, date, adjustment) {
     const query = new URLSearchParams({ region, market: market || "all" });
     if (date) query.set("date", date);
+    if (adjustment) {
+        query.set("screening", "1");
+        query.set("adjustment", adjustment);
+    }
     return request({
         url: url + "api/market_snapshot/" + region + "?" + query.toString(),
         method: 'get',
