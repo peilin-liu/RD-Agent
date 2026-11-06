@@ -1,3 +1,33 @@
+# Training Experiments
+
+在 Playground 的 **Training Experiments** 入口读取现有训练实验，或通过参数表单创建训练。指标、回测、配置和 Model files 复用现有结果组件。
+
+本功能只需在服务当前使用的 `~/.rd-agent/config.json` 顶层增加：
+
+```json
+{"train_data_dir": "/data/tmp"}
+```
+
+保留该文件其他配置。仓库 `config/config.json` 为配置示例；环境变量 `UI_TRAIN_DATA_DIR` 可覆盖此值，缺省为 `/data/tmp`。发现范围是该目录自身及直接实验子目录，仅跟随文件明确声明的本地 MLflow/产物引用，不扫描整个历史库。训练目录只读；历史 rolling.log 没有 `QRUN_RESULT` 时仍展示结果和已观测进度，调用终态显示 unknown。
+
+页面新建训练固定调用同级 `qlib/tools/qrun/train_run.py`，外层使用服务当前 Python、工作目录为同级 qlib 目录。train 保持自己的配置和内部训练解释器；若需覆盖脚本的 `--python`，在高级参数中填写。服务配置不增加脚本、解释器、因子或模型参数。固定入口不存在时，预览仍可用，创建会明确报错。
+
+常用参数勾选后才传递，高级参数支持脚本全部带值参数和正/负开关，保留顺序、0、空字符串和表达式；不接受完整命令或更换入口。预览显示实际 argv。未填写 out-dir 时使用 train_data_dir，显式填写时跟踪该任务输出位置；rolling-exp-name 原样传递。同名覆盖行为由 train 决定。
+
+创建和预览接口接收相同的请求结构，例如：
+
+```json
+{"overrides":[{"name":"rolling-exp-name","kind":"value","value":"example"},{"name":"no-lock-thread-rand","kind":"flag"}]}
+```
+
+每项可用 `enabled:false` 表示不覆盖；kind=value 接收字符串或有限数值，kind=flag 传递实际开关名。参数名使用脚本的真实拼写。完整参数请求示例见 [csi300-overrides.yaml](../../../openspec/changes/manage-qlib-script-experiments/examples/csi300-overrides.yaml)。
+
+一次服务只启动一个托管调用。监督器独立于 Web 会话，任务记录保存在原有 trace_folder 下的 `.qlib-script-tasks`，只记录请求、进程身份、退出码和有界失败诊断，不复制训练日志。页面读取原有 rolling.log/qrun.log；重启不重训。停止只控制自身核验过身份的进程组；外部发现的实验没有停止入口。
+
+终态协议：完整单行 `QRUN_RESULT {"status":"success","stage":"complete","exit_code":0,"run_id":"...","experiment_id":"..."}`，换行后才生效。status 支持 success/failed/interrupted；stage 为训练侧字符串，run_id 可为 null；experiment_id 可选，缺失时须有该 Run 的明确日志引用。兼容旧稿 failed_stage；相同记录幂等，错误/冲突显式呈现。失败仍可展示已生成的回测。字段、接口和恢复规则见 [设计](../../../openspec/changes/manage-qlib-script-experiments/design.md)，验证记录见 [validation.md](../../../openspec/changes/manage-qlib-script-experiments/validation.md)。
+
+修改前端后，在 `web/` 执行 `npm run build:flask`，并按现有方式启动/重启 Web 服务。
+
 # API
 
 ## A. Controls
@@ -250,4 +280,4 @@ Each tag below appears only once per loop.
 ## Page
 
 1. remove Medical, add Finance Whole Pipeline
-2. 
+2.

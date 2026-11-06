@@ -19,7 +19,7 @@
       ></lineChart>
       <div v-else class="chart-empty">
         <div class="chart-empty-title">{{ metricLabels[item] || item }}</div>
-        <div class="chart-empty-body">数据缺失<br/>（任务可能命中缓存未真训练）</div>
+        <div class="chart-empty-body">暂无可用指标</div>
       </div>
     </div>
     <div class="dialog-box" v-if="showDialog">
@@ -39,6 +39,7 @@
 <script setup>
 import { onMounted, defineProps, watch, ref } from "vue";
 import lineChart from "../components/lineChartOne.vue";
+import { metricSeriesHasData } from "../utils/metricSeries";
 
 const props = defineProps({
   metricData: Object,
@@ -50,6 +51,7 @@ const colors = ["red", "blue", "orange", "green", "purple", "teal", "brown", "pi
 const metricLabels = {
   "Rank ICIR": "日频 Rank ICIR",
   "年化收益": "年化收益（含/不含成本）",
+  "年化超额收益": "年化超额收益（含/不含成本）",
   "信息比率 IR": "信息比率 IR（含/不含成本）",
   "最大回撤": "最大回撤（含/不含成本）",
   avg_daily_turnover: "平均日换手率",
@@ -61,18 +63,7 @@ const metricLabels = {
 const keyList = ref([]);
 const showDialog = ref(false);
 
-// A metric has data when the value is either a finite number, or an object
-// whose at least one entry is a finite number (the with/without cost case).
-// null / undefined / empty object => no data (render a placeholder).
-const hasData = (key) => {
-  const v = metricData.value && metricData.value[key];
-  if (v == null) return false;
-  if (typeof v === "number") return Number.isFinite(v);
-  if (typeof v === "object") {
-    return Object.values(v).some((x) => typeof x === "number" && Number.isFinite(x));
-  }
-  return false;
-};
+const hasData = (key) => metricSeriesHasData(metricData.value?.[key]);
 
 const updateData = () => {
   keyList.value = Object.keys(metricData.value || {});

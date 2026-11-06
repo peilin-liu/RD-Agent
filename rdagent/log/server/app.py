@@ -20,11 +20,13 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
+from rdagent.log.server.qlib_script_api import api as qlib_script_api
 from rdagent.log.storage import FileStorage
 from rdagent.log.ui.conf import UI_SETTING
 from rdagent.log.ui.storage import WebStorage
 
 app = Flask(__name__, static_folder=str(Path(UI_SETTING.static_path).resolve()))
+app.register_blueprint(qlib_script_api)
 CORS(app)
 app.config["UI_SERVER_PORT"] = 19899
 
@@ -966,6 +968,7 @@ def _load_predictions(
 class QlibDataProvider:
     def __init__(self, region: str):
         from rdagent.core.region_config import get_region_config
+        from rdagent.log.server.screening import ScreeningSnapshotCache
 
         ri = get_region_config(region)
         self.region = region
@@ -979,6 +982,7 @@ class QlibDataProvider:
         self.price_adjustment = ri.price_adjustment
         self.chips = ri.chips
         self._price_anchor_cache: dict[tuple[str, str], dict] = {}
+        self._screening_cache = ScreeningSnapshotCache()
         self._symbols: list[dict] = []
         self._verify_data_dir()
         self._init_qlib()
@@ -1148,7 +1152,18 @@ class QlibDataProvider:
         "pe", "pb", "dv_ratio", "dv_ttm",
     ]
 
-    def market_snapshot(self, market: str, date: str) -> list[dict]:
+    @property
+    def screening_fields(self) -> dict[str, str]:
+        """The same configured OHLC and indicators exposed by the chart."""
+        return {**self.tech_fields, **self.ohlcv_fields}
+
+    @property
+    def chip_screening_fields(self) -> list[str]:
+        from rdagent.log.server.screening import chip_screening_fields
+
+        return chip_screening_fields(getattr(self, "chips", {}))
+
+    def market_snapshot(self, market: str, date: str, screening: bool = False) -> list[dict]:
         """Latest-day (or given date) snapshot for all symbols in a market.
 
         Resolves each alias's Qlib expression from config ohlcv_fields/tech_fields,
@@ -1160,15 +1175,15 @@ class QlibDataProvider:
             return []
         symbols = [r["symbol"] for r in inst]
         # Build {alias: expr} from config. ohlcv_fields takes precedence, then tech_fields.
-        cfg = {**self.ohlcv_fields, **self.tech_fields}
+        cfg = self.screening_fields
         alias_to_expr: dict[str, str] = {}
-        for alias in self.SNAPSHOT_ALIASES:
+        for alias in (cfg if screening else self.SNAPSHOT_ALIASES):
             expr = cfg.get(alias)
             if expr:
                 alias_to_expr[alias] = expr
         if not alias_to_expr:
             return []
-        exprs = list(alias_to_expr.values())
+        exprs = list(dict.fromkeys(alias_to_expr.values()))
         df = self.query(symbols, exprs, date, date)
         if df.empty:
             return []
@@ -1178,10 +1193,7 @@ class QlibDataProvider:
         except KeyError:
             pass
         df = df.reset_index() if df.index.names and "instrument" in (df.index.names or []) else df
-        # Rename each qlib expression column back to its display alias.
-        col_map = {expr: alias for alias, expr in alias_to_expr.items()}
-        df = df.rename(columns=col_map)
-        # Build per-symbol rows
+        # Map each expression to its aliases, including aliases sharing a field.
         meta_by_sym = {r["symbol"]: r for r in inst}
         out: list[dict] = []
         for _, r in df.iterrows():
@@ -1195,13 +1207,55 @@ class QlibDataProvider:
                 "industry_code": meta.get("industry_code", ""),
                 "industry_name": meta.get("industry_name", ""),
             }
-            for alias in alias_to_expr:
-                row[alias] = _num(r.get(alias))
+            for alias, expr in alias_to_expr.items():
+                row[alias] = _num(r.get(expr))
             out.append(row)
         return out
 
+    def screened_snapshot(self, market: str, date: str, adjustment: str, refresh: bool = False) -> list[dict]:
+        def revision(path):
+            try:
+                stat = path.stat()
+                return stat.st_ino, stat.st_size, stat.st_mtime_ns
+            except FileNotFoundError:
+                return None
+
+        root = Path(self.provider_uri)
+        key = (market, date, adjustment, revision(root / "calendars/day.txt"),
+               revision(root / "instruments" / f"{market}.txt"))
+
+        def compute():
+            rows = self.market_snapshot(market, date, screening=True)
+            metrics = self.screening_metrics([row["symbol"] for row in rows], date, adjustment)
+            chip_metrics = self.chip_snapshot_metrics([row["symbol"] for row in rows], date, adjustment)
+            for row in rows:
+                row.update(metrics.get(row["symbol"], {}))
+                row.update(chip_metrics.get(row["symbol"], {}))
+            return rows
+
+        return self._screening_cache.get(key, compute, refresh=refresh)
+
+    def chip_snapshot_metrics(self, symbols: list[str], date: str, adjustment: str) -> dict[str, dict]:
+        from rdagent.log.server.screening import CHIP_COST_FIELDS, chip_cost_metrics
+
+        prices = {key: expr for key, expr in getattr(self, "chips", {}).get("price_fields", {}).items()
+                  if key in CHIP_COST_FIELDS and expr}
+        close = self.ohlcv_fields.get("close")
+        if not symbols or not prices or not close:
+            return {}
+        # Only the selected day needs cost data; do not expand the MA history query.
+        expressions = list(dict.fromkeys([close, *prices.values(), "$factor"] +
+                                        (["$factor*$adjclose/$close"] if adjustment == "hfq" else [])))
+        frame = self.query(symbols, expressions, date, date)
+        if frame.empty:
+            return {}
+        frame, _ = self.adjust_prices(frame, adjustment, [close])
+        frame, _ = self.adjust_chip_prices(frame, adjustment, prices)
+        return {symbol: chip_cost_metrics(row[close], {key: row[expr] for key, expr in prices.items()})
+                for (_, symbol), row in frame.iterrows()}
+
     def screening_metrics(self, symbols: list[str], date: str, adjustment: str) -> dict[str, dict]:
-        from rdagent.log.server.screening import historical_screening_metrics
+        from rdagent.log.server.screening import SCREENING_HISTORY_DAYS, historical_screening_metrics
 
         if not symbols:
             return {}
@@ -1225,14 +1279,14 @@ class QlibDataProvider:
         trading_dates = sorted(day.strip() for day in calendar_path.read_text().splitlines() if day.strip() and day.strip() <= date)
         if not trading_dates:
             return {}
-        start = trading_dates[-250:][0]
+        start = trading_dates[-SCREENING_HISTORY_DAYS:][0]
         history = self.query(symbols, expressions, start, date)
         if history.empty:
             return {}
         if "close" in fields:
             history, _ = self.adjust_prices(history, adjustment, [fields["close"]])
         history = pd.DataFrame({alias: history[expression] for alias, expression in fields.items()}, index=history.index)
-        return historical_screening_metrics(history, date)
+        return historical_screening_metrics(history, date, calendar=trading_dates)
 
     def _parse_date(self, s: str) -> str:
         return pd.Timestamp(s).strftime("%Y-%m-%d")
@@ -1600,11 +1654,10 @@ def get_market_snapshot(region: str):
         return jsonify({"error": "adjustment must be none, qfq or hfq"}), 400
     try:
         date = provider._parse_date(date)
-        rows = provider.market_snapshot(market, date)
         if screening:
-            metrics = provider.screening_metrics([row["symbol"] for row in rows], date, adjustment)
-            for row in rows:
-                row.update(metrics.get(row["symbol"], {}))
+            rows = provider.screened_snapshot(market, date, adjustment, refresh=request.args.get("refresh") == "1")
+        else:
+            rows = provider.market_snapshot(market, date)
     except Exception as e:
         import traceback as tb
         return jsonify({"error": str(e), "trace": tb.format_exc()}), 500
@@ -1635,6 +1688,9 @@ def get_market_snapshot(region: str):
         "symbols_count": len(rows), "data": rows,
         "predictions": predictions,
         "screening": screening,
+        "indicator_fields": (list(provider.screening_fields)
+                             + (["pred_rank", "pred_score"] if predictions else [])) if screening else [],
+        "chip_fields": provider.chip_screening_fields if screening else [],
     }), 200
 
 

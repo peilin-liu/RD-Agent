@@ -594,6 +594,7 @@ import $ from "jquery";
 import { ElNotification } from "element-plus";
 import { trace, control, url, submitUserInteraction, deleteTrace, fetchNextTraceIdAfterDelete, getCustomFactors } from "../utils/api";
 import ALPHA158 from "../constants/qlib";
+import { qlibDisplayMetrics } from "../utils/qlibMetrics";
 import loopComponent from "../components/loop-component.vue";
 import dialogComponent from "../components/dialog.vue";
 import research from "../components/research.vue";
@@ -1299,34 +1300,7 @@ function getData(data) {
       // series in one panel — the gap between the two lines visually shows
       // how much trading cost eats into the return. Other metrics stay
       // single numbers.
-      const pick = (key) =>
-        metricResult && metricResult[key] !== undefined ? metricResult[key] : null;
-      const withAndWithout = (wKey, woKey) => {
-        const w = pick(wKey);
-        const wo = pick(woKey);
-        if (w == null && wo == null) return null;
-        return { 含成本: w, 不含成本: wo };
-      };
-      onePollDataObj.feedbackMetric = {
-        "Rank ICIR": pick("Rank ICIR"),
-        "年化收益": withAndWithout(
-          "1day.excess_return_with_cost.annualized_return",
-          "1day.excess_return_without_cost.annualized_return"
-        ),
-        "信息比率 IR": withAndWithout(
-          "1day.excess_return_with_cost.information_ratio",
-          "1day.excess_return_without_cost.information_ratio"
-        ),
-        "最大回撤": withAndWithout(
-          "1day.excess_return_with_cost.max_drawdown",
-          "1day.excess_return_without_cost.max_drawdown"
-        ),
-        avg_daily_turnover: pick("avg_daily_turnover"),
-        total_cost: pick("total_cost"),
-        avg_daily_trade_count: pick("avg_daily_trade_count"),
-        total_trade_count: pick("total_trade_count"),
-        avg_holding_days_per_symbol: pick("avg_holding_days_per_symbol"),
-      };
+      onePollDataObj.feedbackMetric = qlibDisplayMetrics(metricResult);
     } else if (item.tag == "END") {
       allData.value.push(Object.assign({}, onePollDataObj));
       userInteractionWaitingHypothesis.value = false;

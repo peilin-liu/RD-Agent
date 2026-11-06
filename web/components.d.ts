@@ -11,6 +11,7 @@ declare module 'vue' {
     Code: typeof import('./src/components/code.vue')['default']
     Development: typeof import('./src/components/development.vue')['default']
     Dialog: typeof import('./src/components/dialog.vue')['default']
+    ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAutoResizer: typeof import('element-plus/es')['ElAutoResizer']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
@@ -54,6 +55,7 @@ declare module 'vue' {
     SvgIcon: typeof import('./src/components/svgIcon.vue')['default']
     Swiper: typeof import('./src/components/swiper.vue')['default']
     SymbolsViewer: typeof import('./src/components/SymbolsViewer.vue')['default']
+    TrainExperiments: typeof import('./src/components/TrainExperiments.vue')['default']
     UploadProgress: typeof import('./src/components/upload-progress.vue')['default']
   }
   export interface ComponentCustomProperties {

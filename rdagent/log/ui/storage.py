@@ -292,9 +292,7 @@ class WebStorage(Storage):
             }
 
         elif "Quantitative Backtesting Chart" in tag:
-            import plotly
-
-            from rdagent.log.ui.qlib_report_figure import report_figure
+            from rdagent.log.ui.qlib_metrics import return_chart_content
 
             data = {
                 "id": id,
@@ -302,7 +300,7 @@ class WebStorage(Storage):
                     "tag": "feedback.return_chart",
                     "timestamp": timestamp,
                     "loop_id": li,
-                    "content": {"chart_html": plotly.io.to_html(report_figure(obj))},
+                    "content": return_chart_content(obj),
                 },
             }
         elif "running" in tag:

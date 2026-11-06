@@ -2,6 +2,23 @@ import request from './request';
 
 export const url = typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
 
+async function qlibScriptRequest(path, config = {}) {
+    const data = await request({ url: url + 'api/qlib-script/' + path, method: 'get', ...config });
+    if (!data) throw new Error('训练服务暂时不可用');
+    if (data && data.status >= 400) throw new Error(data.data?.error || 'Request failed');
+    if (data && data.error) throw new Error(data.error);
+    return data;
+}
+
+export const getTrainExperiments = () => qlibScriptRequest('experiments');
+export const getTrainExperiment = (id) => qlibScriptRequest(`experiments/${encodeURIComponent(id)}`);
+export const getTrainTasks = () => qlibScriptRequest('tasks');
+export const previewTrainTask = (overrides) => qlibScriptRequest('tasks/preview', { method: 'post', data: { overrides } });
+export const createTrainTask = (overrides) => qlibScriptRequest('tasks', { method: 'post', data: { overrides } });
+export const stopTrainTask = (id) => qlibScriptRequest(`tasks/${encodeURIComponent(id)}/stop`, { method: 'post' });
+export const getTrainHistory = (id, runId) => qlibScriptRequest(`experiments/${encodeURIComponent(id)}/history?` + new URLSearchParams({ run_id: runId }));
+export const getTrainLog = (id, offset = 0, generation = '') => qlibScriptRequest(`experiments/${encodeURIComponent(id)}/logs?` + new URLSearchParams({ offset: String(offset), generation }));
+
 export function uploadFile(data, config = {}) {
     return request({
         url: url + "upload",
@@ -141,17 +158,23 @@ export function getInstruments(region, market) {
     })
 }
 
-export function getMarketSnapshot(region, market, date, adjustment) {
+const pendingSnapshots = new Map();
+export function getMarketSnapshot(region, market, date, adjustment, refresh = false) {
     const query = new URLSearchParams({ region, market: market || "all" });
     if (date) query.set("date", date);
     if (adjustment) {
         query.set("screening", "1");
         query.set("adjustment", adjustment);
     }
-    return request({
+    const key = query.toString();
+    if (pendingSnapshots.has(key)) return pendingSnapshots.get(key);
+    if (refresh) query.set("refresh", "1");
+    const pending = request({
         url: url + "api/market_snapshot/" + region + "?" + query.toString(),
         method: 'get',
-    })
+    }).finally(() => pendingSnapshots.delete(key));
+    pendingSnapshots.set(key, pending);
+    return pending;
 }
 
 export function setRegion(region) {

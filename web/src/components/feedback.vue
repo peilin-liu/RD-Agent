@@ -1,6 +1,6 @@
 <template>
-  <div class="research-component">
-    <div class="content-box hypothesis-box">
+  <div class="research-component" :class="{ 'results-only': resultsOnly }">
+    <div class="content-box hypothesis-box" v-if="!resultsOnly">
       <h2>For Hypothesis</h2>
       <div class="deduction">
         <div class="deduction-content" v-if="feedbackHypothesis">
@@ -55,7 +55,8 @@
               Enlarge
             </button>
           </div>
-          <div v-if="!chartModalVisible" v-html="feedbackCharts.chart_html"></div>
+          <iframe v-if="resultsOnly && !chartModalVisible" class="report-frame" :srcdoc="feedbackCharts.chart_html" title="Backtest report" sandbox="allow-scripts allow-same-origin"></iframe>
+          <div v-else-if="!chartModalVisible" v-html="feedbackCharts.chart_html"></div>
         </div>
         <div class="deduction-chart" v-else>
           <p style="padding-left: 1.875em">
@@ -84,7 +85,8 @@
           </button>
         </div>
         <div class="chart-modal-body" v-if="feedbackCharts">
-          <div v-html="feedbackCharts.chart_html"></div>
+          <iframe v-if="resultsOnly" class="report-frame" :srcdoc="feedbackCharts.chart_html" title="Backtest report" sandbox="allow-scripts allow-same-origin"></iframe>
+          <div v-else v-html="feedbackCharts.chart_html"></div>
         </div>
       </div>
     </div>
@@ -96,6 +98,7 @@ import markdownToHtml from "../components/markdownToHtml.vue";
 const props = defineProps({
   currentData: Object,
   updateEnd: Boolean,
+  resultsOnly: Boolean,
 });
 const currentData = ref(props.currentData);
 const updateEnd = ref(props.updateEnd);
@@ -113,6 +116,7 @@ const closeChartModal = () => {
 };
 
 const executeScripts = () => {
+  if (props.resultsOnly) return; // The isolated report document executes its own Plotly scripts.
   // 获取 HTML 中所有的 <script> 标签
   const scripts = document.querySelectorAll("script");
   scripts.forEach((script) => {
@@ -165,6 +169,8 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+.results-only .returns-box { width: 100% !important; }
+.report-frame { width: 100%; height: 1220px; border: 0; background: white; }
 .research-component {
   height: 100%;
   display: flex;
@@ -276,6 +282,24 @@ onMounted(() => {
 .returns-box .config-section :deep(.markdown-body) {
   flex: 1;
   max-height: none;
+  color: #24292f;
+  color-scheme: light;
+}
+
+.returns-box .config-section :deep(.markdown-body pre) {
+  background: #f3f6fb;
+  border: 1px solid #dce2ef;
+  color: #24292f;
+  line-height: 1.6;
+}
+
+.returns-box .config-section :deep(.markdown-body code) {
+  color: inherit;
+  text-shadow: none;
+}
+
+.returns-box .config-section :deep(.markdown-body pre code) {
+  background: transparent;
 }
 
 .chart-modal {

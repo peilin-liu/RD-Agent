@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from rdagent.log.server import app as server
-from rdagent.log.server.screening import historical_screening_metrics
+from rdagent.log.server.screening import MA_PERIODS, ScreeningSnapshotCache, historical_screening_metrics
 
 
 class ScreeningMetricsTests(unittest.TestCase):
@@ -85,15 +85,58 @@ class ScreeningMetricsTests(unittest.TestCase):
             provider.latest_price_anchors = Mock(return_value={"TEST.SZ": {"factor": 2, "date": self.end}})
             row = provider.screening_metrics(["TEST.SZ"], self.end, "qfq")["TEST.SZ"]
             self.assertEqual(row["ma5_slope"], 0)
-            self.assertEqual(provider.query.call_args.args[2:], (self.dates[1].strftime("%Y-%m-%d"), self.end))
+            self.assertEqual(provider.query.call_args.args[2:], (self.dates[0].strftime("%Y-%m-%d"), self.end))
             row = provider.screening_metrics(["TEST.SZ"], self.end, "none")["TEST.SZ"]
             self.assertEqual(row["ma5_slope"], -10)
 
+    def test_all_chart_periods_use_long_history_but_chips_keep_250_day_window(self):
+        dates = pd.bdate_range("2023-01-02", periods=503)
+        frame = pd.DataFrame({
+            "close": [1000 + 2 * i for i in range(503)], "volume": 100,
+            # Out-of-window extrema and the future day must not affect chips.
+            "winner_rate": [0] * 252 + [20] + [40] * 248 + [50, 100],
+        }, index=pd.MultiIndex.from_product([dates, ["TEST.SZ"]], names=["date", "instrument"]))
+        row = historical_screening_metrics(frame, str(dates[-2].date()))["TEST.SZ"]
+        for period in MA_PERIODS:
+            self.assertEqual(row[f"ma{period}_slope"], 2)
+        self.assertEqual(row["winner_rate_position_250d"], 100)
+        short = historical_screening_metrics(frame.iloc[-501:], str(dates[-2].date()))["TEST.SZ"]
+        self.assertIsNone(short["ma500_slope"])
+        self.assertEqual(short["ma250_slope"], 2)
+
+    def test_snapshot_includes_configured_indicators_and_duplicate_expression_aliases(self):
+        provider = server.QlibDataProvider.__new__(server.QlibDataProvider)
+        provider.ohlcv_fields = {"close": "$close"}
+        provider.tech_fields = {"custom_indicator": "$custom", "same_indicator": "$custom"}
+        provider._read_instruments = Mock(return_value=[{"symbol": "TEST.SZ"}])
+        index = pd.MultiIndex.from_tuples([(pd.Timestamp(self.end), "TEST.SZ")], names=["date", "instrument"])
+        provider.query = Mock(return_value=pd.DataFrame({"$close": [10.0], "$custom": [42.0]}, index=index))
+        rows = provider.market_snapshot("all", self.end, screening=True)
+        self.assertEqual(rows[0]["custom_indicator"], 42)
+        self.assertEqual(rows[0]["same_indicator"], 42)
+        self.assertEqual(rows[0]["close"], 10)
+        self.assertEqual(provider.query.call_args.args[1].count("$custom"), 1)
+
+    def test_ma500_can_use_older_valid_bars_across_suspensions(self):
+        dates = pd.bdate_range("2023-01-02", periods=530)
+        frame = pd.DataFrame({"close": range(530), "volume": 100},
+                             index=pd.MultiIndex.from_product([dates, ["TEST.SZ"]], names=["date", "instrument"]))
+        frame.loc[(dates[100:110], "TEST.SZ"), "volume"] = 0
+        row = historical_screening_metrics(frame, str(dates[-1].date()))["TEST.SZ"]
+        self.assertAlmostEqual(row["ma500_slope"], (529 - 19) / 500)
+
     def test_endpoint_only_computes_history_when_requested(self):
-        provider = Mock(price_adjustment="qfq", prediction_dirs={})
+        provider = Mock(price_adjustment="qfq", prediction_dirs={}, screening_fields={"close": "$close", "custom_indicator": "$custom"})
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        provider.provider_uri = directory.name
+        provider._screening_cache = ScreeningSnapshotCache()
+        provider.screened_snapshot.side_effect = lambda *args, **kwargs: server.QlibDataProvider.screened_snapshot(provider, *args, **kwargs)
         provider._parse_date.return_value = self.end
-        provider.market_snapshot.side_effect = lambda *_: [{"symbol": "TEST.SZ"}]
+        provider.market_snapshot.side_effect = lambda *_, **kwargs: [{"symbol": "TEST.SZ"}]
         provider.screening_metrics.return_value = {"TEST.SZ": {"ma5_slope": 1, "winner_rate_position_250d": 50}}
+        provider.chip_snapshot_metrics.return_value = {"TEST.SZ": {"chip_avg_cost_bias": -5}}
+        provider.chip_screening_fields = ["winner_rate", "chip_avg_cost_bias"]
         with patch.object(server, "_get_provider", return_value=provider):
             client = server.app.test_client()
             basic = client.get(f"/api/market_snapshot/cn?market=all&date={self.end}")
@@ -102,8 +145,21 @@ class ScreeningMetricsTests(unittest.TestCase):
             enhanced = client.get(f"/api/market_snapshot/cn?market=all&date={self.end}&screening=1&adjustment=none")
             self.assertEqual(enhanced.status_code, 200)
             self.assertTrue(enhanced.get_json()["screening"])
+            self.assertIn("custom_indicator", enhanced.get_json()["indicator_fields"])
+            self.assertNotIn("winner_rate", enhanced.get_json()["indicator_fields"])
+            self.assertIn("winner_rate", enhanced.get_json()["chip_fields"])
+            self.assertEqual(enhanced.get_json()["data"][0]["chip_avg_cost_bias"], -5)
             self.assertEqual(enhanced.get_json()["data"][0]["winner_rate_position_250d"], 50)
             provider.screening_metrics.assert_called_once_with(["TEST.SZ"], self.end, "none")
+            client.get(f"/api/market_snapshot/cn?market=all&date={self.end}&screening=1&adjustment=none")
+            self.assertEqual(provider.screening_metrics.call_count, 1)
+            client.get(f"/api/market_snapshot/cn?market=all&date={self.end}&screening=1&adjustment=none&refresh=1")
+            self.assertEqual(provider.screening_metrics.call_count, 2)
+            root = Path(directory.name)
+            (root / "calendars").mkdir()
+            (root / "calendars/day.txt").write_text(self.end)
+            client.get(f"/api/market_snapshot/cn?market=all&date={self.end}&screening=1&adjustment=none")
+            self.assertEqual(provider.screening_metrics.call_count, 3)
             self.assertEqual(client.get(f"/api/market_snapshot/cn?screening=1&adjustment=invalid&date={self.end}").status_code, 400)
 
 

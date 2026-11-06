@@ -15,7 +15,7 @@
         v-else-if="!showPlayground && showPanel >= 4"
         class="nav-highlight-name"
       >
-        Data Explorer
+        {{ showPanel == 5 ? 'Training Experiments' : 'Data Explorer' }}
       </span>
       <span
         v-else
@@ -53,6 +53,11 @@
       <div class="main-content" v-show="showPanel == 1">
         <h1>Let's Get Started: Select Your Action</h1>
         <div class="card-box">
+          <div class="card-item gradient-big-border" @click="showPanel = 5">
+            <h2>Training Experiments</h2>
+            <p>Run train and review existing experiment results</p>
+            <img class="img2" src="@/assets/images/continue-img.png" alt="Training Experiments" />
+          </div>
           <div class="card-item gradient-big-border" @click="openDataExplorer">
             <h2>Data Explorer</h2>
             <p>Browse Qlib OHLCV data by symbol</p>
@@ -455,6 +460,9 @@
       <div class="main-content data-explorer-content" v-show="showPanel == 4">
         <SymbolsViewer :region="currentRegion" :key="symbolsViewerKey" />
       </div>
+      <div class="main-content data-explorer-content" v-if="showPanel == 5">
+        <TrainExperiments />
+      </div>
     </div>
     <div class="playground-shell" v-if="showPlayground">
       <playgroundPage
@@ -475,6 +483,7 @@ import { getHistoryTraceIds, uploadFile, getRegions, getMarkets, getBenchmarks, 
 import selectComponent from "../components/select-component.vue";
 import smSelectComponent from "../components/sm-select-component.vue";
 import SymbolsViewer from "../components/SymbolsViewer.vue";
+import TrainExperiments from "../components/TrainExperiments.vue";
 import loadingSvg from "../components/loading-dot.vue";
 import markdown from "../components/markdown.vue";
 import { defineAsyncComponent } from "vue";

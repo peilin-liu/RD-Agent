@@ -98,15 +98,15 @@
           <span class="date-separator">至</span>
           <el-date-picker v-model="endDate" type="date" placeholder="结束日期" value-format="YYYY-MM-DD" @change="onDateChange" class="date-picker" />
           <el-select-v2 v-model="adjustment" :options="adjustmentOptions" class="adjustment-select" aria-label="价格复权方式" @change="onAdjustmentChange" />
-          <el-button type="primary" @click="refreshData" :loading="dataLoading || metricsLoading" size="small">刷新</el-button>
-          <StockScreener v-model="stockScreen" :symbols="constituents" :metrics="metricsBySymbol" :market="marketLabel(selectedMarket)"
+          <el-button type="primary" @click="refreshData" :loading="dataLoading" size="small">刷新</el-button>
+          <StockScreener v-model="stockScreen" :symbols="constituents" :metrics="metricsBySymbol" :fields="screeningIndicatorFields" :chip-fields="screeningChipFields" :market="marketLabel(selectedMarket)"
             :date="metricsDate || screeningDate" :loading="metricsLoading || symbolsLoading" :ready="metricsLoaded" :error="metricsError" @retry="loadMetrics()" />
+          <span v-if="metricsLoading" class="metrics-loading" role="status">正在计算选股指标…</span>
           <div v-if="screenActive" class="screen-controls" role="group" aria-label="已选筛选条件" aria-live="polite">
             <div class="screen-tags">
-              <el-tag v-if="stockScreen.industry" size="small" closable @close="stockScreen.industry = ''">{{ stockScreen.industry }}</el-tag>
-              <template v-for="period in maScreenPeriods" :key="period">
-                <el-tag v-if="stockScreen.maDirections[period]" size="small" closable @close="stockScreen.maDirections[period] = ''">MA{{ period }} {{ maDirectionLabels[stockScreen.maDirections[period] as 'up' | 'flat' | 'down'] }}</el-tag>
-              </template>
+              <el-tag v-for="(industry, index) in stockScreen.industries" :key="industry" size="small" closable @close="stockScreen.industries.splice(index, 1)">{{ industry }}</el-tag>
+              <el-tag v-for="(rule, index) in stockScreen.maRules" :key="`ma-${index}`" size="small" closable @close="stockScreen.maRules.splice(index, 1)">{{ screeningRuleLabel(rule) }}</el-tag>
+              <el-tag v-for="(rule, index) in stockScreen.chipRules" :key="`chip-${index}`" size="small" closable @close="stockScreen.chipRules.splice(index, 1)">{{ screeningRuleLabel(rule) }}</el-tag>
               <el-tag v-for="(rule, index) in stockScreen.rules" :key="index" size="small" closable @close="stockScreen.rules.splice(index, 1)">{{ screeningRuleLabel(rule) }}</el-tag>
             </div>
             <el-button link type="primary" @click="stockScreen = emptyScreen()">清除筛选</el-button>
@@ -128,7 +128,7 @@
         <p v-if="selectedSymbol && !symbolsLoading && !selectedInMarket" class="outside-market">当前股票不在所选股票池中，可从左侧选择成分股。</p>
         <p v-else-if="selectedSymbol && screenActive && metricsLoaded && !screenedSymbols.some(s => s.symbol === selectedSymbol)" class="outside-market">当前股票不符合筛选条件，可从左侧选择命中的股票。</p>
     <div class="chart-stage" v-loading="dataLoading">
-      <div ref="chartDom" class="chart-container" :class="{ 'with-chip-panel': showWinnerRate }" v-show="rawData.length"></div>
+      <div ref="chartDom" class="chart-container" v-show="rawData.length"></div>
       <div v-if="!rawData.length && !dataLoading" class="chart-empty">
         <strong>{{ selectedSymbol ? '暂无行情数据' : '从左侧选择股票' }}</strong>
         <span>{{ selectedSymbol ? '可调整日期范围，或选择其他股票。' : '选择指数后，点击成分股即可查看 K 线。' }}</span>
@@ -227,7 +227,7 @@ import type { PriceAdjustment } from "@/utils/api";
 import * as echarts from "echarts";
 import MarketSnapshot from "./MarketSnapshot.vue";
 import StockScreener from "./StockScreener.vue";
-import { emptyScreen, maDirectionLabels, maScreenPeriods, matchesScreen, screenCount, screeningRuleLabel } from "@/utils/stockScreener";
+import { emptyScreen, chipFieldsFor, indicatorFieldsFor, maScreenPeriods, matchesScreen, screenCount, screeningRuleLabel } from "@/utils/stockScreener";
 
 const props = defineProps<{ region: string }>();
 
@@ -280,6 +280,8 @@ const screenedSymbols = computed(() => constituents.value.filter(s =>
 const symbolTableRef = ref<any>(null);
 type SnapshotRow = Awaited<ReturnType<typeof getMarketSnapshot>>["data"][number];
 const metricsBySymbol = ref<Record<string, SnapshotRow>>({});
+const screeningChipFields = ref(chipFieldsFor([]));
+const screeningIndicatorFields = ref(indicatorFieldsFor([]));
 const metricsLoading = ref(false);
 const metricsLoaded = ref(false);
 const metricsError = ref("");
@@ -400,7 +402,7 @@ function onSymbolRowClick({ rowData }: { rowData: SymbolInfo }) {
   fetchData();
 }
 const startDate = ref<string | null>(new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10));
-const endDate = ref<string | null>(new Date().toISOString().slice(0, 10));
+const endDate = ref<string | null>(null);
 const screeningDate = computed(() => {
   const end = endDate.value || latestTradingDate.value;
   return latestTradingDate.value && end > latestTradingDate.value ? latestTradingDate.value : end;
@@ -419,7 +421,7 @@ const DEFAULT_LOWER_FIELDS = ["pe", "pb", "pe_ttm", "pb_ttm"];
 function isDefaultField(f: string): boolean {
   return DEFAULT_LOWER_FIELDS.includes(String(f).toLowerCase());
 }
-const maPeriods = [5, 10, 20, 30, 60, 250, 500];
+const maPeriods = maScreenPeriods;
 const enabledMA = ref<Set<number>>(new Set(maPeriods));
 // Fixed color per MA period so the tag and the overlay line share the same
 // color, making it easy to tell MA types apart on the chart.
@@ -494,7 +496,9 @@ async function loadLatestDate() {
   try {
     const res: any = await getDataRange();
     const region = res?.regions?.[props.region] || res?.[props.region];
+    const useDataEnd = !endDate.value || endDate.value === latestTradingDate.value;
     latestTradingDate.value = region?.end || res?.end || "";
+    if (useDataEnd) endDate.value = latestTradingDate.value || null;
     if (!adjustmentChosen && isAdjustment(region?.price_adjustment)) {
       adjustment.value = region.price_adjustment;
     }
@@ -667,19 +671,21 @@ function resetMetrics() {
   hasPredictions.value = false;
 }
 
-async function loadMetrics(request = constituentsRequest) {
+async function loadMetrics(request = constituentsRequest, refresh = false) {
   if (request !== constituentsRequest || metricsLoading.value || metricsLoaded.value || !constituents.value.length) return;
   const metricRequest = ++metricsRequest;
   const isCurrent = () => request === constituentsRequest && metricRequest === metricsRequest;
   metricsLoading.value = true;
   metricsError.value = "";
   try {
-    const response = await getMarketSnapshot(props.region, selectedMarket.value, screeningDate.value || undefined, adjustment.value);
+    const response = await getMarketSnapshot(props.region, selectedMarket.value, screeningDate.value || undefined, adjustment.value, refresh);
     if (!isCurrent()) return;
     if (!Array.isArray(response?.data)) throw apiError(response, "无法加载选股及排序指标");
     if (!response.screening) throw new Error("选股指标服务尚未更新，请重新加载后端服务后重试。");
     if (!response.data.length) throw new Error("该日期暂无行情数据，请选择有数据的交易日。");
     metricsBySymbol.value = Object.fromEntries(response.data.map(row => [row.symbol, row]));
+    screeningIndicatorFields.value = indicatorFieldsFor(response.indicator_fields || []);
+    screeningChipFields.value = chipFieldsFor(response.chip_fields || []);
     metricsDate.value = response.date;
     hasPredictions.value = !!response.predictions;
     metricsLoaded.value = true;
@@ -696,11 +702,16 @@ async function retrySymbols() {
   if (!symbolsError.value) await loadConstituents(true);
 }
 
-function onDateChange() { if (selectedSymbol.value) fetchData(); }
+function onDateChange() {
+  if (!endDate.value) endDate.value = latestTradingDate.value || null;
+  if (selectedSymbol.value) fetchData();
+}
 function refreshData() {
   fetchData();
+  // Keep an ongoing calculation instead of invalidating and starting it again.
+  if (metricsLoading.value) return;
   resetMetrics();
-  loadMetrics();
+  loadMetrics(constituentsRequest, true);
 }
 function onAdjustmentChange() {
   adjustmentChosen = true;
@@ -718,7 +729,8 @@ async function fetchData() {
   dataLoading.value = true;
   try {
     const start = startDate.value || "2024-01-01";
-    const end = endDate.value || "2024-12-31";
+    const end = endDate.value || latestTradingDate.value;
+    if (!end) throw new Error("无法获取数据末尾日期，请选择结束日期后重试。");
     userStart.value = start;
     // Lookback buffer so long MAs (MA500) have enough history to form. Fetch
     // ~1.6x the longest MA period in calendar days before the user's start.
@@ -843,7 +855,6 @@ function renderChart() {
   const lowerPit = pitFactorFields.value.filter((f) => enabledPit.value.has(f) && !pitOverlayFields.value.includes(f));
   const maList = maPeriods.filter((p) => enabledMA.value.has(p));
   const selectedChipLayers = availableChipLayers.value.filter(layer => enabledChips.value.has(layer.key));
-  const winnerPanel = showWinnerRate.value;
 
   // MA uses the full lookback data (rawDataFull) so long periods (MA500) have
   // enough history, then slices to the displayed window. `rawData` is a
@@ -970,23 +981,20 @@ function renderChart() {
   lowerAll.forEach((_, idx) => {
     if (idx > 0) yAxis.push({ gridIndex: 1, scale: true, splitNumber: 2, splitLine: { show: false } });
   });
-  if (winnerPanel) {
+  // Keep the percentage scale independent without taking space for another axis.
+  if (showWinnerRate.value) {
     const layer = chipLayers.find(layer => layer.key === "winner_rate")!;
     const axis = yAxis.length;
     yAxis.push({
-      gridIndex: 2, min: 0, max: 100, interval: 50,
-      name: "获利筹码比例", nameTextStyle: { color: layer.color, fontSize: 11 },
-      axisLabel: { formatter: "{value}%", fontSize: 10 },
-      splitLine: { lineStyle: { color: "#edf2f2" } },
+      gridIndex: 1, show: false, min: 0, max: 100,
     });
     series.push({
       name: layer.label, type: "line", data: rawData.value.map(row => chipNumber(row.winner_rate)),
-      xAxisIndex: 2, yAxisIndex: axis, symbol: "none", connectNulls: false,
+      xAxisIndex: 1, yAxisIndex: axis, symbol: "none", connectNulls: false,
       lineStyle: { color: layer.color, width: 1.5 }, itemStyle: { color: layer.color },
-      areaStyle: { color: layer.color, opacity: 0.08 },
     } as any);
   }
-  const linkedAxes = winnerPanel ? [0, 1, 2] : [0, 1];
+  const linkedAxes = [0, 1];
 
   // Widen right margin when overlay axes are present so their labels fit.
   const gridRight = 50 + overlayAxes * 30;
@@ -1007,6 +1015,12 @@ function renderChart() {
           lines.push(`high: ${fmtNum(row[ohlcv[1]])}`);
           lines.push(`low: ${fmtNum(row[ohlcv[2]])}`);
           lines.push(`close: ${fmtNum(row[ohlcv[3]])}`);
+          const previousClose = snapshotNumber(rawDataFull.value[offset + idx - 1]?.[ohlcv[3]]);
+          const close = snapshotNumber(row[ohlcv[3]]);
+          const change = snapshotNumber(row.pct_chg) ??
+            (close != null && previousClose != null && previousClose > 0
+              ? (close / previousClose - 1) * 100 : null);
+          lines.push(`当日涨跌幅: ${change == null ? "-" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}`);
         }
         lowerAll.forEach((f) => {
           lines.push(`${f}: ${fmtNum(row[f])}`);
@@ -1032,14 +1046,12 @@ function renderChart() {
     legend: { show: false, data: legendData },
     axisPointer: { link: [{ xAxisIndex: "all" }] },
     grid: [
-      { left: 70, right: gridRight, top: 36, height: winnerPanel ? "48%" : "56%" },
-      { left: 70, right: 50, top: winnerPanel ? "61%" : "72%", height: winnerPanel ? "13%" : "20%" },
-      ...(winnerPanel ? [{ left: 70, right: 50, top: "81%", height: "11%" }] : []),
+      { left: 70, right: gridRight, top: 36, height: "56%" },
+      { left: 70, right: 50, top: "72%", height: "20%" },
     ],
     xAxis: [
       { type: "category", data: dates, gridIndex: 0, scale: true, boundaryGap: true, axisLabel: { show: false } },
-      { type: "category", data: dates, gridIndex: 1, scale: true, boundaryGap: true, axisLabel: { show: !winnerPanel } },
-      ...(winnerPanel ? [{ type: "category", data: dates, gridIndex: 2, scale: true, boundaryGap: true }] : []),
+      { type: "category", data: dates, gridIndex: 1, scale: true, boundaryGap: true },
     ],
     yAxis,
     dataZoom: [
@@ -1124,9 +1136,9 @@ function renderChart() {
 .ma-history-hint { margin: -4px 0 14px; color: #909399; font-size: 12px; line-height: 1.7; }
 .ind-tag { cursor: pointer; user-select: none; max-width: 100%; box-sizing: border-box; }
 .ind-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metrics-loading { font-size: 12px; color: #8b93a3; }
 .row-empty { font-size: 12px; color: #c0c4cc; }
 .chart-container { width: 100%; height: clamp(480px, 62vh, 700px); }
-.chart-container.with-chip-panel { height: clamp(560px, 72vh, 820px); }
 @media (max-width: 1100px) {
   .split-layout { grid-template-columns: 180px minmax(0, 1fr) 168px; gap: 10px; }
   .chart-pane { padding: 16px; }

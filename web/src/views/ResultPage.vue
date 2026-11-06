@@ -1,7 +1,7 @@
 <template>
   <div class="result-component">
     <div class="download-btn">
-      <div class="download-btn-item">
+      <div class="download-btn-item" v-if="!externalMode">
         <el-switch
           v-model="switchValue"
           @change="switchChange"
@@ -9,11 +9,12 @@
         />
         <span>Successful Hypotheses</span>
       </div>
-      <div class="download-btn-item" @click="downloadLogs">
+      <a class="download-btn-item" v-if="externalMode && logDownloadUrl" :href="logDownloadUrl">Log</a>
+      <div class="download-btn-item" v-if="!externalMode" @click="downloadLogs">
         <span class="download-icon"></span>
         <span>Log</span>
       </div>
-      <div class="download-btn-item" @click="downloadAllLoops">
+      <div class="download-btn-item" v-if="!externalMode" @click="downloadAllLoops">
         <span class="download-icon"></span>
         <span>All loop files</span>
       </div>
@@ -59,19 +60,22 @@
                 <span class="text-color-blue">Status</span>
               </template>
               <template #default="scope">
-                <span v-if="scope.row.decision" class="success">Success</span>
-                <span v-if="!scope.row.decision" class="fail">Failed</span>
+                <span v-if="externalMode" :class="scope.row.executionState === 'succeeded' ? 'success' : scope.row.executionState === 'failed' ? 'fail' : ''">{{ scope.row.executionState }}</span>
+                <template v-else>
+                  <span v-if="scope.row.decision" class="success">Success</span>
+                  <span v-if="!scope.row.decision" class="fail">Failed</span>
+                </template>
               </template>
             </el-table-column>
-            <el-table-column label="Hypothesis" prop="hypothesis">
+            <el-table-column :label="externalMode ? 'Experiment' : 'Hypothesis'" prop="hypothesis">
               <template #header="scope">
-                <span class="text-color-blue">Hypothesis</span>
+                <span class="text-color-blue">{{ externalMode ? 'Experiment' : 'Hypothesis' }}</span>
               </template>
               <template #default="scope">
                 {{ scope.row.hypothesis || "Component initializing" }}
               </template>
             </el-table-column>
-            <el-table-column label="Feedback" prop="concise_knowledge">
+            <el-table-column label="Feedback" prop="concise_knowledge" v-if="!externalMode">
               <template #header="scope">
                 <span class="text-color-purple">Feedback</span>
               </template>
@@ -87,7 +91,8 @@
                 <span class="text-color-blue">Files</span>
               </template>
               <template #default="scope">
-                <div class="download-file-list" v-if="scope.row.downloadFiles.length">
+                <button v-if="externalMode" class="download-file-btn model-files-btn" type="button" @click="openModelFilesModal">Model files</button>
+                <div class="download-file-list" v-else-if="scope.row.downloadFiles.length">
                   <button
                     class="download-file-btn download-all-btn"
                     type="button"
@@ -120,7 +125,7 @@
                 <span v-else>-</span>
               </template>
             </el-table-column>
-            <el-table-column type="expand" width="120">
+            <el-table-column type="expand" width="120" v-if="!externalMode">
               <template #default="props">
                 <ul class="table-expand">
                   <li>
@@ -184,8 +189,8 @@
         </div>
         <div class="model-files-modal-body">
           <p v-if="loadingArtifacts">Loading…</p>
-          <p v-else-if="!modelArtifacts.length">No model files found for this trace.</p>
           <p v-else-if="modelArtifactsError" class="model-files-error">{{ modelArtifactsError }}</p>
+          <p v-else-if="!modelArtifacts.length">No model files found.</p>
           <ul v-else class="model-files-list">
             <li
               v-for="a in modelArtifacts"
@@ -221,6 +226,9 @@ const props = defineProps({
   scenarioName: String,
   baseFactors: [Object, String],
   traceName: String,
+  externalMode: Boolean,
+  externalArtifacts: { type: Array, default: () => [] },
+  logDownloadUrl: String,
 });
 const currentData = ref(props.currentData);
 const scenarioName = ref(props.scenarioName);
@@ -242,6 +250,11 @@ const openModelFilesModal = async () => {
   loadingArtifacts.value = true;
   modelArtifactsError.value = "";
   modelArtifacts.value = [];
+  if (props.externalMode) {
+    modelArtifacts.value = props.externalArtifacts;
+    loadingArtifacts.value = false;
+    return;
+  }
   const traceId = getTraceId();
   if (!traceId) {
     loadingArtifacts.value = false;
@@ -664,6 +677,18 @@ const downloadAllLoops = async () => {
 const updateData = () => {
   const table = [];
   const metric = {};
+
+  if (props.externalMode) {
+    (currentData.value || []).forEach((item, index) => {
+      table.push({ num: index, hypothesis: item.name, executionState: item.executionState, downloadFiles: [] });
+      Object.entries(item.feedbackMetric || {}).forEach(([key, value]) => {
+        (metric[key] ||= []).push({ name: item.name, value, desc: item.name });
+      });
+    });
+    tableData.value = table;
+    metricData.value = metric;
+    return;
+  }
 
   if (switchValue.value) {
     currentData.value.forEach((item, index) => {

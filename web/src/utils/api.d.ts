@@ -15,7 +15,7 @@ declare module '@/utils/api' {
     instruments: Array<{ symbol: string; name: string; listing_date: string; industry_code: string; industry_name: string }>;
     error?: string;
   }>;
-  export function getMarketSnapshot(region: string, market?: string, date?: string, adjustment?: PriceAdjustment): Promise<{
+  export function getMarketSnapshot(region: string, market?: string, date?: string, adjustment?: PriceAdjustment, refresh?: boolean): Promise<{
     region: string;
     market: string;
     date: string;
@@ -43,8 +43,13 @@ declare module '@/utils/api' {
       winner_rate?: number | null;
       winner_rate_position_250d?: number | null;
       ma5_slope?: number | null;
+      ma10_slope?: number | null;
       ma20_slope?: number | null;
+      ma30_slope?: number | null;
       ma60_slope?: number | null;
+      ma250_slope?: number | null;
+      ma500_slope?: number | null;
+      [field: string]: unknown;
     }>;
     predictions?: {
       market: string;
@@ -54,6 +59,8 @@ declare module '@/utils/api' {
     } | null;
     error?: string;
     screening?: boolean;
+    indicator_fields?: string[];
+    chip_fields?: string[];
   }>;
   export function setRegion(region: string): Promise<any>;
   export function getSymbols(region: string): Promise<Array<{ symbol: string; name: string; listing_date?: string }>>;

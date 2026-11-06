@@ -23,6 +23,8 @@ class UIBasePropSetting(ExtendedBaseSettings):
 
     trace_folder: str = "./git_ignore_folder/traces"
 
+    train_data_dir: str = "/data/tmp"
+
     enable_cache: bool = True
 
 
